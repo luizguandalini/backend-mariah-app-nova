@@ -10,13 +10,8 @@ export class AppController {
     return this.appService.getHello();
   }
 
-  @Get('status')
-  getStatus(): object {
-    return this.appService.getStatus();
-  }
-
-  @Get('random')
-  getRandom(): object {
-    return this.appService.getRandomData();
+  @Get('health')
+  getHealth(): object {
+    return this.appService.getHealth();
   }
 }
