@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, MaxLength, IsOptional, IsNumber, IsBoolean, Min } from 'class-validator';
+import { IsNotEmpty, IsString, MaxLength, IsOptional, IsNumber, IsBoolean, Min, IsInt } from 'class-validator';
 
 export class CreatePlanoDto {
   @IsNotEmpty({ message: 'O nome do plano é obrigatório' })
@@ -15,6 +15,11 @@ export class CreatePlanoDto {
   @IsNumber({}, { message: 'O preço deve ser um número' })
   @Min(0, { message: 'O preço deve ser maior ou igual a 0' })
   preco?: number;
+
+  @IsNotEmpty({ message: 'A quantidade de imagens é obrigatória' })
+  @IsInt({ message: 'A quantidade de imagens deve ser um número inteiro' })
+  @Min(1, { message: 'A quantidade de imagens deve ser maior ou igual a 1' })
+  quantidadeImagens: number;
 
   @IsOptional()
   @IsBoolean({ message: 'Ativo deve ser verdadeiro ou falso' })

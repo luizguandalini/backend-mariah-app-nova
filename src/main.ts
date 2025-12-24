@@ -24,6 +24,9 @@ async function bootstrap() {
     .setTitle('API Nova Mariah')
     .setDescription('Documentação da API do sistema Nova Mariah')
     .setVersion('1.0')
+    .addBearerAuth()
+    .addTag('auth', 'Autenticação e registro')
+    .addTag('users', 'Gerenciamento de usuários')
     .addTag('planos', 'Gerenciamento de planos')
     .addTag('beneficios', 'Gerenciamento de benefícios dos planos')
     .build();

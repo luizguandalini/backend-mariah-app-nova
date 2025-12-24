@@ -15,6 +15,9 @@ export class Plano {
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
   preco: number;
 
+  @Column({ type: 'int' })
+  quantidadeImagens: number;
+
   @Column({ type: 'boolean', default: true })
   ativo: boolean;
 
