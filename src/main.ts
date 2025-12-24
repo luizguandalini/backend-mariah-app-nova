@@ -10,6 +10,14 @@ async function bootstrap() {
     new FastifyAdapter(),
   );
 
+  // Habilita CORS
+  app.enableCors({
+    origin: ['http://localhost:5173', 'http://localhost:3000'],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
+
   // Habilita validação global
   app.useGlobalPipes(
     new ValidationPipe({
