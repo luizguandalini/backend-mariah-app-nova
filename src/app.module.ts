@@ -6,6 +6,7 @@ import { AppService } from './app.service';
 import { PlanosModule } from './planos/planos.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { AmbientesModule } from './ambientes/ambientes.module';
 import { DatabaseSeedService } from './database/database-seed.service';
 import { Usuario } from './users/entities/usuario.entity';
 
@@ -37,6 +38,7 @@ import { Usuario } from './users/entities/usuario.entity';
     PlanosModule,
     AuthModule,
     UsersModule,
+    AmbientesModule,
   ],
   controllers: [AppController],
   providers: [AppService, DatabaseSeedService],
