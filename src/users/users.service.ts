@@ -59,9 +59,15 @@ export class UsersService {
     return await this.usuarioRepository.save(usuario);
   }
 
-  async updateQuantidadeImagens(id: string, quantidade: number, currentUser: any): Promise<Usuario> {
+  async updateQuantidadeImagens(
+    id: string,
+    quantidade: number,
+    currentUser: any,
+  ): Promise<Usuario> {
     if (![UserRole.DEV, UserRole.ADMIN].includes(currentUser.role)) {
-      throw new ForbiddenException('Apenas DEV e ADMIN podem alterar créditos de imagens');
+      throw new ForbiddenException(
+        'Apenas DEV e ADMIN podem alterar quantidade de imagens disponíveis',
+      );
     }
 
     const usuario = await this.findOne(id);
@@ -77,7 +83,7 @@ export class UsersService {
 
   async addQuantidadeImagens(id: string, quantidade: number, currentUser: any): Promise<Usuario> {
     if (![UserRole.DEV, UserRole.ADMIN].includes(currentUser.role)) {
-      throw new ForbiddenException('Apenas DEV e ADMIN podem adicionar créditos de imagens');
+      throw new ForbiddenException('Apenas DEV e ADMIN podem adicionar imagens disponíveis');
     }
 
     const usuario = await this.findOne(id);

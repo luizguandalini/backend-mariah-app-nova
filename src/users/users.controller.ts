@@ -1,4 +1,14 @@
-import { Controller, Get, Put, Body, Param, Delete, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Put,
+  Body,
+  Param,
+  Delete,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
@@ -55,14 +65,14 @@ export class UsersController {
     return await this.usersService.update(id, updateUsuarioDto, user);
   }
 
-  @Put(':id/creditos/set/:quantidade')
+  @Put(':id/imagens/set/:quantidade')
   @Roles(UserRole.DEV, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Definir quantidade de imagens (DEV/ADMIN)' })
+  @ApiOperation({ summary: 'Definir quantidade de imagens disponíveis (DEV/ADMIN)' })
   @ApiParam({ name: 'id', description: 'ID do usuário' })
-  @ApiParam({ name: 'quantidade', description: 'Nova quantidade de imagens' })
-  @ApiResponse({ status: 200, description: 'Créditos definidos com sucesso' })
+  @ApiParam({ name: 'quantidade', description: 'Nova quantidade de imagens disponíveis' })
+  @ApiResponse({ status: 200, description: 'Quantidade de imagens definida com sucesso' })
   @ApiResponse({ status: 403, description: 'Sem permissão' })
-  async setCreditos(
+  async setQuantidadeImagens(
     @Param('id') id: string,
     @Param('quantidade') quantidade: number,
     @CurrentUser() user: any,
@@ -70,14 +80,14 @@ export class UsersController {
     return await this.usersService.updateQuantidadeImagens(id, +quantidade, user);
   }
 
-  @Put(':id/creditos/add/:quantidade')
+  @Put(':id/imagens/add/:quantidade')
   @Roles(UserRole.DEV, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Adicionar créditos de imagens (DEV/ADMIN)' })
+  @ApiOperation({ summary: 'Adicionar quantidade de imagens disponíveis (DEV/ADMIN)' })
   @ApiParam({ name: 'id', description: 'ID do usuário' })
-  @ApiParam({ name: 'quantidade', description: 'Quantidade a adicionar' })
-  @ApiResponse({ status: 200, description: 'Créditos adicionados com sucesso' })
+  @ApiParam({ name: 'quantidade', description: 'Quantidade de imagens a adicionar' })
+  @ApiResponse({ status: 200, description: 'Imagens adicionadas com sucesso' })
   @ApiResponse({ status: 403, description: 'Sem permissão' })
-  async addCreditos(
+  async addQuantidadeImagens(
     @Param('id') id: string,
     @Param('quantidade') quantidade: number,
     @CurrentUser() user: any,
