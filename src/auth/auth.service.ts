@@ -57,6 +57,11 @@ export class AuthService {
   }
 
   async register(createUsuarioDto: CreateUsuarioDto) {
+    // Bloqueia criação de usuário DEV via API
+    if (createUsuarioDto.role === UserRole.DEV) {
+      throw new UnauthorizedException('Não é permitido criar usuário DEV. O usuário DEV é criado automaticamente.');
+    }
+
     const usuarioExistente = await this.usuarioRepository.findOne({
       where: { email: createUsuarioDto.email },
     });

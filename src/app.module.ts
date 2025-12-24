@@ -6,6 +6,8 @@ import { AppService } from './app.service';
 import { PlanosModule } from './planos/planos.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { DatabaseSeedService } from './database/database-seed.service';
+import { Usuario } from './users/entities/usuario.entity';
 
 @Module({
   imports: [
@@ -31,11 +33,12 @@ import { UsersModule } from './users/users.module';
       }),
       inject: [ConfigService],
     }),
+    TypeOrmModule.forFeature([Usuario]),
     PlanosModule,
     AuthModule,
     UsersModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, DatabaseSeedService],
 })
 export class AppModule {}

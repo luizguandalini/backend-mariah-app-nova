@@ -1,4 +1,11 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  OneToMany,
+} from 'typeorm';
 import { PlanoBeneficio } from './plano-beneficio.entity';
 
 @Entity('planos')
@@ -27,13 +34,13 @@ export class Plano {
   @OneToMany(() => PlanoBeneficio, (beneficio) => beneficio.plano, { cascade: true })
   beneficios: PlanoBeneficio[];
 
-  @CreateDateColumn({ 
+  @CreateDateColumn({
     name: 'created_at',
     type: 'timestamptz',
   })
   createdAt: Date;
 
-  @UpdateDateColumn({ 
+  @UpdateDateColumn({
     name: 'updated_at',
     type: 'timestamptz',
   })

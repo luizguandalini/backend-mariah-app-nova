@@ -33,6 +33,16 @@ export class UsersService {
   async update(id: string, updateUsuarioDto: UpdateUsuarioDto, currentUser: any): Promise<Usuario> {
     const usuario = await this.findOne(id);
 
+    // Bloqueia edição de role para DEV
+    if (updateUsuarioDto.role === UserRole.DEV) {
+      throw new ForbiddenException('Não é permitido criar ou alterar para role DEV');
+    }
+
+    // Não permite alterar role de um DEV existente
+    if (usuario.role === UserRole.DEV) {
+      throw new ForbiddenException('Não é permitido alterar dados de usuário DEV');
+    }
+
     // Só DEV e ADMIN podem alterar quantidadeImagens
     if (updateUsuarioDto.quantidadeImagens !== undefined) {
       if (![UserRole.DEV, UserRole.ADMIN].includes(currentUser.role)) {
@@ -82,6 +92,12 @@ export class UsersService {
 
   async remove(id: string): Promise<void> {
     const usuario = await this.findOne(id);
+
+    // Não permite deletar usuário DEV
+    if (usuario.role === UserRole.DEV) {
+      throw new ForbiddenException('Não é permitido deletar usuário DEV');
+    }
+
     await this.usuarioRepository.remove(usuario);
   }
 
