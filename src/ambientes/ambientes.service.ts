@@ -1,4 +1,10 @@
-import { Injectable, NotFoundException, ConflictException, Inject, forwardRef } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Ambiente } from './entities/ambiente.entity';
@@ -67,7 +73,7 @@ export class AmbientesService {
   }
 
   async findOne(id: string): Promise<Ambiente> {
-    const ambiente = await this.ambienteRepository.findOne({ 
+    const ambiente = await this.ambienteRepository.findOne({
       where: { id },
       relations: ['itens'],
     });
@@ -101,12 +107,48 @@ export class AmbientesService {
     return await this.ambienteRepository.save(ambiente);
   }
 
+  async updateTiposOnly(
+    id: string,
+    updateAmbienteDto: UpdateAmbienteDto,
+  ): Promise<{ id: string; tiposUso?: string[]; tiposImovel?: string[] }> {
+    // Busca apenas os campos essenciais, SEM relations
+    const ambiente = await this.ambienteRepository.findOne({
+      where: { id },
+      select: ['id', 'tiposUso', 'tiposImovel'],
+    });
+
+    if (!ambiente) {
+      throw new NotFoundException('Ambiente não encontrado');
+    }
+
+    // Atualiza apenas os tipos
+    if (updateAmbienteDto.tiposUso !== undefined) {
+      ambiente.tiposUso = updateAmbienteDto.tiposUso;
+    }
+    if (updateAmbienteDto.tiposImovel !== undefined) {
+      ambiente.tiposImovel = updateAmbienteDto.tiposImovel;
+    }
+
+    await this.ambienteRepository.save(ambiente);
+
+    // Retorna apenas os campos necessários
+    return {
+      id: ambiente.id,
+      tiposUso: ambiente.tiposUso,
+      tiposImovel: ambiente.tiposImovel,
+    };
+  }
+
   async remove(id: string): Promise<void> {
     const ambiente = await this.findOne(id);
     await this.ambienteRepository.remove(ambiente);
   }
 
-  private async trocarOrdem(ambienteId: string, ordemAtual: number, novaOrdem: number): Promise<void> {
+  private async trocarOrdem(
+    ambienteId: string,
+    ordemAtual: number,
+    novaOrdem: number,
+  ): Promise<void> {
     const ambienteNaPosicao = await this.ambienteRepository.findOne({
       where: { ordem: novaOrdem },
     });

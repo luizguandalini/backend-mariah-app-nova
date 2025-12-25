@@ -1,13 +1,4 @@
-import { 
-  Controller, 
-  Get, 
-  Post, 
-  Body, 
-  Param, 
-  Put, 
-  Delete,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Put, Patch, Delete, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AmbientesService } from './ambientes.service';
 import { CreateAmbienteDto } from './dto/create-ambiente.dto';
@@ -54,6 +45,13 @@ export class AmbientesController {
   @ApiOperation({ summary: 'Atualizar ambiente (apenas DEV e ADMIN)' })
   update(@Param('id') id: string, @Body() updateAmbienteDto: UpdateAmbienteDto) {
     return this.ambientesService.update(id, updateAmbienteDto);
+  }
+
+  @Patch(':id/tipos')
+  @Roles(UserRole.DEV, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Atualizar apenas tipos do ambiente (otimizado)' })
+  updateTipos(@Param('id') id: string, @Body() updateAmbienteDto: UpdateAmbienteDto) {
+    return this.ambientesService.updateTiposOnly(id, updateAmbienteDto);
   }
 
   @Delete(':id')

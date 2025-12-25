@@ -1,5 +1,13 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  OneToMany,
+} from 'typeorm';
 import { ItemAmbiente } from './item-ambiente.entity';
+import { TipoUso, TipoImovel } from '../enums/ambiente-tipos.enum';
 
 @Entity('ambientes')
 export class Ambiente {
@@ -18,16 +26,34 @@ export class Ambiente {
   @Column({ type: 'boolean', default: true })
   ativo: boolean;
 
+  @Column({
+    type: 'enum',
+    enum: TipoUso,
+    array: true,
+    default: '{}',
+    name: 'tipos_uso',
+  })
+  tiposUso: TipoUso[];
+
+  @Column({
+    type: 'enum',
+    enum: TipoImovel,
+    array: true,
+    default: '{}',
+    name: 'tipos_imovel',
+  })
+  tiposImovel: TipoImovel[];
+
   @OneToMany(() => ItemAmbiente, (item) => item.ambiente)
   itens: ItemAmbiente[];
 
-  @CreateDateColumn({ 
+  @CreateDateColumn({
     name: 'created_at',
     type: 'timestamptz',
   })
   createdAt: Date;
 
-  @UpdateDateColumn({ 
+  @UpdateDateColumn({
     name: 'updated_at',
     type: 'timestamptz',
   })

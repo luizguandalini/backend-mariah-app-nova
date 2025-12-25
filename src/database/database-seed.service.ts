@@ -1,6 +1,6 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { Usuario } from '../users/entities/usuario.entity';
@@ -14,10 +14,45 @@ export class DatabaseSeedService implements OnModuleInit {
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
     private readonly configService: ConfigService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async onModuleInit() {
+    await this.createEnumTypes();
     await this.seedDevUser();
+  }
+
+  /**
+   * Cria os tipos ENUM necessários no PostgreSQL
+   */
+  private async createEnumTypes(): Promise<void> {
+    try {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+
+      // Criar ENUM tipo_uso
+      await queryRunner.query(`
+        DO $$ BEGIN
+          CREATE TYPE tipo_uso AS ENUM ('Residencial', 'Comercial', 'Industrial');
+        EXCEPTION
+          WHEN duplicate_object THEN null;
+        END $$;
+      `);
+
+      // Criar ENUM tipo_imovel
+      await queryRunner.query(`
+        DO $$ BEGIN
+          CREATE TYPE tipo_imovel AS ENUM ('Casa', 'Apartamento', 'Estudio');
+        EXCEPTION
+          WHEN duplicate_object THEN null;
+        END $$;
+      `);
+
+      await queryRunner.release();
+      this.logger.log('✅ ENUMs do banco de dados verificados/criados');
+    } catch (error) {
+      this.logger.error('❌ Erro ao criar ENUMs:', error.message);
+    }
   }
 
   private async seedDevUser(): Promise<void> {
@@ -38,7 +73,9 @@ export class DatabaseSeedService implements OnModuleInit {
       const devPassword = this.configService.get('DEV_PASSWORD');
 
       if (!devName || !devEmail || !devPassword) {
-        this.logger.warn('⚠️  Credenciais do DEV não encontradas no .env. Pulando criação automática.');
+        this.logger.warn(
+          '⚠️  Credenciais do DEV não encontradas no .env. Pulando criação automática.',
+        );
         return;
       }
 
