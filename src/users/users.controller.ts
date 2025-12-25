@@ -5,6 +5,7 @@ import {
   Body,
   Param,
   Delete,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -35,11 +36,18 @@ export class UsersController {
 
   @Get()
   @Roles(UserRole.DEV, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Listar todos os usuários (DEV/ADMIN)' })
+  @ApiOperation({ summary: 'Listar todos os usuários com paginação e filtros (DEV/ADMIN)' })
   @ApiResponse({ status: 200, description: 'Lista retornada com sucesso' })
   @ApiResponse({ status: 403, description: 'Sem permissão' })
-  async findAll(): Promise<Usuario[]> {
-    return await this.usersService.findAll();
+  async findAll(
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 10,
+    @Query('search') search?: string,
+    @Query('role') role?: UserRole,
+    @Query('ativo') ativo?: string,
+  ): Promise<{ data: Usuario[]; total: number; page: number; totalPages: number }> {
+    const ativoBoolean = ativo === undefined ? undefined : ativo === 'true';
+    return await this.usersService.findAll(+page, +limit, search, role, ativoBoolean);
   }
 
   @Get(':id')

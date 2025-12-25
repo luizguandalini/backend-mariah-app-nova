@@ -14,10 +14,49 @@ export class UsersService {
     private readonly usuarioRepository: Repository<Usuario>,
   ) {}
 
-  async findAll(): Promise<Usuario[]> {
-    return await this.usuarioRepository.find({
-      order: { nome: 'ASC' },
-    });
+  async findAll(
+    page: number = 1,
+    limit: number = 10,
+    search?: string,
+    role?: UserRole,
+    ativo?: boolean,
+  ): Promise<{ data: Usuario[]; total: number; page: number; totalPages: number }> {
+    const queryBuilder = this.usuarioRepository.createQueryBuilder('usuario');
+
+    // Filtro de busca por nome ou email
+    if (search) {
+      queryBuilder.andWhere(
+        '(LOWER(usuario.nome) LIKE LOWER(:search) OR LOWER(usuario.email) LIKE LOWER(:search))',
+        { search: `%${search}%` },
+      );
+    }
+
+    // Filtro por role
+    if (role) {
+      queryBuilder.andWhere('usuario.role = :role', { role });
+    }
+
+    // Filtro por status ativo
+    if (ativo !== undefined) {
+      queryBuilder.andWhere('usuario.ativo = :ativo', { ativo });
+    }
+
+    // Paginação
+    const skip = (page - 1) * limit;
+    queryBuilder.skip(skip).take(limit);
+
+    // Ordenação
+    queryBuilder.orderBy('usuario.nome', 'ASC');
+
+    // Executar query
+    const [data, total] = await queryBuilder.getManyAndCount();
+
+    return {
+      data,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   async findOne(id: string): Promise<Usuario> {
