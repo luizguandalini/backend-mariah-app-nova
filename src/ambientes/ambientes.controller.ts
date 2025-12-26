@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Body, Param, Put, Patch, Delete, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Put,
+  Patch,
+  Delete,
+  UseGuards,
+  Query,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AmbientesService } from './ambientes.service';
 import { CreateAmbienteDto } from './dto/create-ambiente.dto';
@@ -33,6 +44,31 @@ export class AmbientesController {
   @ApiOperation({ summary: 'Listar todos os ambientes com árvore completa de itens e sub-itens' })
   findAllWithTree() {
     return this.ambientesService.findAllWithTree();
+  }
+
+  @Get('arvore-completa/paginado')
+  @ApiOperation({
+    summary: 'Listar ambientes com árvore completa paginados (para scroll infinito)',
+  })
+  findAllWithTreePaginated(@Query('limit') limit?: number, @Query('offset') offset?: number) {
+    return this.ambientesService.findAllWithTreePaginated(
+      limit ? Number(limit) : 10,
+      offset ? Number(offset) : 0,
+    );
+  }
+
+  @Patch('reordenar')
+  @Roles(UserRole.DEV, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Reordenar múltiplos ambientes (drag-and-drop)' })
+  reordenar(@Body() reordenacao: { id: string; ordem: number }[]) {
+    return this.ambientesService.reordenar(reordenacao);
+  }
+
+  @Patch(':id/mover/:novaOrdem')
+  @Roles(UserRole.DEV, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Mover um ambiente para uma nova posição (otimizado)' })
+  moverAmbiente(@Param('id') id: string, @Param('novaOrdem') novaOrdem: string) {
+    return this.ambientesService.moverAmbiente(id, Number(novaOrdem));
   }
 
   @Get(':id')

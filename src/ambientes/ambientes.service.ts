@@ -63,42 +63,87 @@ export class AmbientesService {
       order: { ordem: 'ASC', nome: 'ASC' },
     });
 
+    return this.buildAmbientesTree(ambientes);
+  }
+
+  async findAllWithTreePaginated(
+    limit: number = 10,
+    offset: number = 0,
+  ): Promise<{ data: any[]; total: number; hasMore: boolean }> {
+    // Buscar total de ambientes únicos (contando grupos como 1)
+    const allAmbientes = await this.ambienteRepository.find({
+      where: { ativo: true },
+      order: { ordem: 'ASC', nome: 'ASC' },
+    });
+
+    const allTree = await this.buildAmbientesTree(allAmbientes);
+    const total = allTree.length;
+
+    // Paginar a árvore construída
+    const paginatedTree = allTree.slice(offset, offset + limit);
+    const hasMore = offset + limit < total;
+
+    return {
+      data: paginatedTree,
+      total,
+      hasMore,
+    };
+  }
+
+  private async buildAmbientesTree(ambientes: Ambiente[]): Promise<any[]> {
     // Agrupar ambientes com mesmo grupoId
     const grupos = new Map<string, any>();
-    const ambientesSemGrupo: any[] = [];
+    const gruposProcessados = new Set<string>();
+    const resultado: any[] = [];
 
     for (const ambiente of ambientes) {
       const itens = await this.itensAmbienteService.findAllByAmbiente(ambiente.id);
 
       if (ambiente.grupoId) {
-        if (!grupos.has(ambiente.grupoId)) {
-          grupos.set(ambiente.grupoId, {
-            id: ambiente.grupoId,
-            nome: ambiente.nome,
-            isGrupo: true,
-            grupoId: ambiente.grupoId,
-            ambientes: [],
-            nomes: [],
-            tiposUso: ambiente.tiposUso,
-            tiposImovel: ambiente.tiposImovel,
-            ativo: ambiente.ativo,
-            ordem: ambiente.ordem,
-            itens: itens,
-            createdAt: ambiente.createdAt,
-            updatedAt: ambiente.updatedAt,
-          });
-        }
+        // Se é um grupo e ainda não foi processado
+        if (!gruposProcessados.has(ambiente.grupoId)) {
+          if (!grupos.has(ambiente.grupoId)) {
+            grupos.set(ambiente.grupoId, {
+              id: ambiente.grupoId,
+              nome: ambiente.nome,
+              isGrupo: true,
+              grupoId: ambiente.grupoId,
+              ambientes: [],
+              nomes: [],
+              tiposUso: ambiente.tiposUso,
+              tiposImovel: ambiente.tiposImovel,
+              ativo: ambiente.ativo,
+              ordem: ambiente.ordem,
+              itens: itens,
+              createdAt: ambiente.createdAt,
+              updatedAt: ambiente.updatedAt,
+            });
+          }
 
-        const grupo = grupos.get(ambiente.grupoId);
-        grupo.ambientes.push({
-          id: ambiente.id,
-          nome: ambiente.nome,
-          // NÃO incluir tipos - eles vêm do grupo
-        });
-        grupo.nomes.push(ambiente.nome);
-        grupo.nome = grupo.nomes.join(' + ');
+          const grupo = grupos.get(ambiente.grupoId);
+          grupo.ambientes.push({
+            id: ambiente.id,
+            nome: ambiente.nome,
+          });
+          grupo.nomes.push(ambiente.nome);
+          grupo.nome = grupo.nomes.join(' + ');
+
+          // Adicionar o grupo no resultado na posição correta
+          resultado.push(grupo);
+          gruposProcessados.add(ambiente.grupoId);
+        } else {
+          // Se o grupo já foi processado, apenas adicionar o nome ao grupo existente
+          const grupo = grupos.get(ambiente.grupoId);
+          grupo.ambientes.push({
+            id: ambiente.id,
+            nome: ambiente.nome,
+          });
+          grupo.nomes.push(ambiente.nome);
+          grupo.nome = grupo.nomes.join(' + ');
+        }
       } else {
-        ambientesSemGrupo.push({
+        // Ambiente sem grupo - adicionar diretamente no resultado
+        resultado.push({
           ...ambiente,
           itens,
           isGrupo: false,
@@ -106,7 +151,7 @@ export class AmbientesService {
       }
     }
 
-    return [...Array.from(grupos.values()), ...ambientesSemGrupo];
+    return resultado;
   }
 
   async findOne(id: string): Promise<Ambiente> {
@@ -497,6 +542,105 @@ export class AmbientesService {
     if (ambienteNaPosicao && ambienteNaPosicao.id !== ambienteId) {
       ambienteNaPosicao.ordem = ordemAtual;
       await this.ambienteRepository.save(ambienteNaPosicao);
+    }
+  }
+
+  /**
+   * Reordenar múltiplos ambientes de uma vez
+   */
+  async reordenar(reordenacao: { id: string; ordem: number }[]): Promise<void> {
+    // Atualizar ordem de cada ambiente ou grupo
+    for (const item of reordenacao) {
+      // Verificar se é um grupoId (pode ser que não exista um ambiente com esse id diretamente)
+      const ambientePorId = await this.ambienteRepository.findOne({
+        where: { id: item.id },
+      });
+
+      if (ambientePorId) {
+        // É um ambiente individual, atualizar normalmente
+        await this.ambienteRepository.update(item.id, { ordem: item.ordem });
+      } else {
+        // Pode ser um grupoId - atualizar todos os ambientes do grupo
+        const ambientesDoGrupo = await this.ambienteRepository.find({
+          where: { grupoId: item.id },
+        });
+
+        if (ambientesDoGrupo.length > 0) {
+          // Atualizar todos os ambientes do grupo com a mesma ordem
+          for (const ambiente of ambientesDoGrupo) {
+            await this.ambienteRepository.update(ambiente.id, { ordem: item.ordem });
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Mover um ambiente para uma nova posição (otimizado)
+   * Ajusta automaticamente as ordens dos outros ambientes
+   */
+  async moverAmbiente(id: string, novaOrdem: number): Promise<void> {
+    // Verificar se é um ambiente individual ou um grupoId
+    const ambientePorId = await this.ambienteRepository.findOne({
+      where: { id },
+    });
+
+    let ordemAtual: number;
+    let idsParaAtualizar: string[] = [];
+
+    if (ambientePorId) {
+      // É um ambiente individual
+      ordemAtual = ambientePorId.ordem;
+      idsParaAtualizar = [id];
+    } else {
+      // Pode ser um grupoId
+      const ambientesDoGrupo = await this.ambienteRepository.find({
+        where: { grupoId: id },
+      });
+
+      if (ambientesDoGrupo.length === 0) {
+        throw new NotFoundException('Ambiente ou grupo não encontrado');
+      }
+
+      ordemAtual = ambientesDoGrupo[0].ordem;
+      idsParaAtualizar = ambientesDoGrupo.map((a) => a.id);
+    }
+
+    // Se a ordem não mudou, não faz nada
+    if (ordemAtual === novaOrdem) {
+      return;
+    }
+
+    // Buscar todos os ambientes para ajustar as ordens
+    const todosAmbientes = await this.ambienteRepository.find({
+      where: { ativo: true },
+      order: { ordem: 'ASC' },
+    });
+
+    // Ajustar ordens
+    if (novaOrdem < ordemAtual) {
+      // Movendo para cima - aumentar ordem dos que estão entre novaOrdem e ordemAtual
+      for (const ambiente of todosAmbientes) {
+        if (ambiente.ordem >= novaOrdem && ambiente.ordem < ordemAtual) {
+          await this.ambienteRepository.update(ambiente.id, {
+            ordem: ambiente.ordem + 1,
+          });
+        }
+      }
+    } else {
+      // Movendo para baixo - diminuir ordem dos que estão entre ordemAtual e novaOrdem
+      for (const ambiente of todosAmbientes) {
+        if (ambiente.ordem > ordemAtual && ambiente.ordem <= novaOrdem) {
+          await this.ambienteRepository.update(ambiente.id, {
+            ordem: ambiente.ordem - 1,
+          });
+        }
+      }
+    }
+
+    // Atualizar o(s) ambiente(s) movido(s)
+    for (const ambienteId of idsParaAtualizar) {
+      await this.ambienteRepository.update(ambienteId, { ordem: novaOrdem });
     }
   }
 }
