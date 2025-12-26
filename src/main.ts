@@ -3,8 +3,39 @@ import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { SshTunnelService } from './config/ssh-tunnel.service';
+import { ConfigService } from '@nestjs/config';
 
 async function bootstrap() {
+  // Em modo development, estabelece o túnel SSH antes de criar a aplicação
+  const nodeEnv = process.env.NODE_ENV;
+  const sshEnabled = process.env.SSH_ENABLED === 'true';
+
+  if (nodeEnv === 'development' && sshEnabled) {
+    console.log('🔐 Modo desenvolvimento detectado - estabelecendo túnel SSH...');
+
+    // Cria uma instância temporária do ConfigService para o SshTunnelService
+    const { ConfigModule } = await import('@nestjs/config');
+    const tempApp = await NestFactory.createApplicationContext(
+      ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
+    );
+    const configService = tempApp.get(ConfigService);
+    const sshTunnelService = new SshTunnelService(configService);
+
+    try {
+      await sshTunnelService.connect();
+      console.log('✅ Túnel SSH estabelecido - prosseguindo com inicialização...');
+    } catch (error) {
+      console.error('❌ Erro ao estabelecer túnel SSH:', error.message);
+      console.error(
+        '💡 Verifique se a chave SSH está no local correto e se o servidor EC2 está acessível',
+      );
+      process.exit(1);
+    }
+
+    await tempApp.close();
+  }
+
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter());
 
   // Habilita CORS

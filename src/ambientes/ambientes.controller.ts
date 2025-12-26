@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AmbientesService } from './ambientes.service';
 import { CreateAmbienteDto } from './dto/create-ambiente.dto';
 import { UpdateAmbienteDto } from './dto/update-ambiente.dto';
+import { AgruparAmbienteDto } from './dto/agrupar-ambiente.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -52,6 +53,45 @@ export class AmbientesController {
   @ApiOperation({ summary: 'Atualizar apenas tipos do ambiente (otimizado)' })
   updateTipos(@Param('id') id: string, @Body() updateAmbienteDto: UpdateAmbienteDto) {
     return this.ambientesService.updateTiposOnly(id, updateAmbienteDto);
+  }
+
+  @Put(':id/agrupar-com')
+  @Roles(UserRole.DEV, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Agrupar ambiente com outro (existente ou novo)',
+    description:
+      'Se o ambiente com o nome informado já existe, apenas agrupa. Se não existe, cria com as mesmas configurações e agrupa.',
+  })
+  agruparCom(@Param('id') id: string, @Body() dto: AgruparAmbienteDto) {
+    return this.ambientesService.agruparCom(id, dto.nomeAmbiente);
+  }
+
+  @Post(':id/tipos-uso/:tipo')
+  @Roles(UserRole.DEV, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Adicionar tipo de uso ao ambiente (REST)' })
+  adicionarTipoUso(@Param('id') id: string, @Param('tipo') tipo: string) {
+    return this.ambientesService.adicionarTipoUso(id, tipo);
+  }
+
+  @Delete(':id/tipos-uso/:tipo')
+  @Roles(UserRole.DEV, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Remover tipo de uso do ambiente (REST)' })
+  removerTipoUso(@Param('id') id: string, @Param('tipo') tipo: string) {
+    return this.ambientesService.removerTipoUso(id, tipo);
+  }
+
+  @Post(':id/tipos-imovel/:tipo')
+  @Roles(UserRole.DEV, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Adicionar tipo de imóvel ao ambiente (REST)' })
+  adicionarTipoImovel(@Param('id') id: string, @Param('tipo') tipo: string) {
+    return this.ambientesService.adicionarTipoImovel(id, tipo);
+  }
+
+  @Delete(':id/tipos-imovel/:tipo')
+  @Roles(UserRole.DEV, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Remover tipo de imóvel do ambiente (REST)' })
+  removerTipoImovel(@Param('id') id: string, @Param('tipo') tipo: string) {
+    return this.ambientesService.removerTipoImovel(id, tipo);
   }
 
   @Delete(':id')

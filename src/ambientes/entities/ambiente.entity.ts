@@ -44,6 +44,9 @@ export class Ambiente {
   })
   tiposImovel: TipoImovel[];
 
+  @Column({ type: 'uuid', nullable: true, name: 'grupo_id' })
+  grupoId: string;
+
   @OneToMany(() => ItemAmbiente, (item) => item.ambiente)
   itens: ItemAmbiente[];
 

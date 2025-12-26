@@ -13,19 +13,31 @@ export class ItensAmbienteService {
   ) {}
 
   async create(ambienteId: string, createItemDto: CreateItemAmbienteDto): Promise<ItemAmbiente> {
-    // Define a ordem automaticamente dentro do ambiente/parent
-    const whereClause: any = { ambienteId };
+    // Validar se o parentId existe, se fornecido
     if (createItemDto.parentId) {
-      whereClause.parentId = createItemDto.parentId;
-    } else {
-      whereClause.parentId = IsNull();
+      const parentExists = await this.itemRepository.findOne({
+        where: { id: createItemDto.parentId, ambienteId },
+      });
+
+      if (!parentExists) {
+        throw new NotFoundException(
+          `Item pai com ID ${createItemDto.parentId} não encontrado neste ambiente`,
+        );
+      }
     }
 
-    const maxOrdem = await this.itemRepository
+    // Define a ordem automaticamente dentro do ambiente/parent
+    const queryBuilder = this.itemRepository
       .createQueryBuilder('item')
-      .where(whereClause)
-      .select('MAX(item.ordem)', 'max')
-      .getRawOne();
+      .where('item.ambienteId = :ambienteId', { ambienteId });
+
+    if (createItemDto.parentId) {
+      queryBuilder.andWhere('item.parentId = :parentId', { parentId: createItemDto.parentId });
+    } else {
+      queryBuilder.andWhere('item.parentId IS NULL');
+    }
+
+    const maxOrdem = await queryBuilder.select('MAX(item.ordem)', 'max').getRawOne();
 
     const proximaOrdem = (maxOrdem?.max || 0) + 1;
 
@@ -50,7 +62,7 @@ export class ItensAmbienteService {
   }
 
   async findOne(id: string): Promise<ItemAmbiente> {
-    const item = await this.itemRepository.findOne({ 
+    const item = await this.itemRepository.findOne({
       where: { id },
       relations: ['filhos'],
     });
@@ -67,7 +79,13 @@ export class ItensAmbienteService {
 
     // Troca ordem se necessário
     if (updateItemDto.ordem && updateItemDto.ordem !== item.ordem) {
-      await this.trocarOrdem(item.ambienteId, item.parentId, item.id, item.ordem, updateItemDto.ordem);
+      await this.trocarOrdem(
+        item.ambienteId,
+        item.parentId,
+        item.id,
+        item.ordem,
+        updateItemDto.ordem,
+      );
     }
 
     Object.assign(item, updateItemDto);
@@ -84,12 +102,12 @@ export class ItensAmbienteService {
     const roots: ItemAmbiente[] = [];
 
     // Primeiro, criar o mapa
-    items.forEach(item => {
+    items.forEach((item) => {
       map.set(item.id, { ...item, filhos: [] });
     });
 
     // Depois, construir a árvore
-    items.forEach(item => {
+    items.forEach((item) => {
       const node = map.get(item.id);
       if (item.parentId) {
         const parent = map.get(item.parentId);
@@ -104,7 +122,13 @@ export class ItensAmbienteService {
     return roots;
   }
 
-  private async trocarOrdem(ambienteId: string, parentId: string, itemId: string, ordemAtual: number, novaOrdem: number): Promise<void> {
+  private async trocarOrdem(
+    ambienteId: string,
+    parentId: string,
+    itemId: string,
+    ordemAtual: number,
+    novaOrdem: number,
+  ): Promise<void> {
     const whereClause: any = { ambienteId, ordem: novaOrdem };
     if (parentId) {
       whereClause.parentId = parentId;
