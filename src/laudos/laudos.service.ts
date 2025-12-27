@@ -22,23 +22,97 @@ export class LaudosService {
     private readonly usuarioRepository: Repository<Usuario>,
   ) {}
 
+  async getLaudoDetalhes(id: string) {
+    const laudo = await this.laudoRepository.findOne({ where: { id } });
+    if (!laudo) {
+      throw new NotFoundException('Laudo não encontrado');
+    }
+    // Retorna apenas os campos de detalhes
+    return {
+      incluirAtestado: laudo.incluirAtestado,
+      atestado: laudo.atestado,
+      analisesHidraulicas: laudo.analisesHidraulicas,
+      analisesEletricas: laudo.analisesEletricas,
+      sistemaAr: laudo.sistemaAr,
+      mecanismosAbertura: laudo.mecanismosAbertura,
+      revestimentos: laudo.revestimentos,
+      mobilias: laudo.mobilias,
+    };
+  }
+
   async create(createLaudoDto: CreateLaudoDto): Promise<Laudo> {
     const laudo = this.laudoRepository.create(createLaudoDto);
     return await this.laudoRepository.save(laudo);
   }
 
-  async findAll(): Promise<Laudo[]> {
-    return await this.laudoRepository.find({
+  async findAll(): Promise<Partial<Laudo>[]> {
+    const laudos = await this.laudoRepository.find({
       relations: ['usuario'],
       order: { createdAt: 'DESC' },
     });
+    return laudos.map((l) => ({
+      id: l.id,
+      usuarioId: l.usuarioId,
+      endereco: l.endereco,
+      rua: l.rua,
+      numero: l.numero,
+      complemento: l.complemento,
+      bairro: l.bairro,
+      cidade: l.cidade,
+      estado: l.estado,
+      cep: l.cep,
+      tipoVistoria: l.tipoVistoria,
+      tipoUso: l.tipoUso,
+      tipoImovel: l.tipoImovel,
+      tipo: l.tipo,
+      unidade: l.unidade,
+      status: l.status,
+      tamanho: l.tamanho,
+      pdfUrl: l.pdfUrl,
+      totalAmbientes: l.totalAmbientes,
+      totalFotos: l.totalFotos,
+      latitude: l.latitude,
+      longitude: l.longitude,
+      enderecoCompletoGps: l.enderecoCompletoGps,
+      incluirAtestado: l.incluirAtestado,
+      createdAt: l.createdAt,
+      updatedAt: l.updatedAt,
+    }));
   }
 
-  async findByUsuario(usuarioId: string): Promise<Laudo[]> {
-    return await this.laudoRepository.find({
+  async findByUsuario(usuarioId: string): Promise<Partial<Laudo>[]> {
+    const laudos = await this.laudoRepository.find({
       where: { usuarioId },
       order: { createdAt: 'DESC' },
     });
+    return laudos.map((l) => ({
+      id: l.id,
+      usuarioId: l.usuarioId,
+      endereco: l.endereco,
+      rua: l.rua,
+      numero: l.numero,
+      complemento: l.complemento,
+      bairro: l.bairro,
+      cidade: l.cidade,
+      estado: l.estado,
+      cep: l.cep,
+      tipoVistoria: l.tipoVistoria,
+      tipoUso: l.tipoUso,
+      tipoImovel: l.tipoImovel,
+      tipo: l.tipo,
+      unidade: l.unidade,
+      status: l.status,
+      tamanho: l.tamanho,
+      pdfUrl: l.pdfUrl,
+      totalAmbientes: l.totalAmbientes,
+      totalFotos: l.totalFotos,
+      latitude: l.latitude,
+      longitude: l.longitude,
+      enderecoCompletoGps: l.enderecoCompletoGps,
+      incluirAtestado: l.incluirAtestado,
+      createdAt: l.createdAt,
+      updatedAt: l.updatedAt,
+    }));
   }
 
   async findOne(id: string): Promise<Laudo> {
@@ -106,11 +180,39 @@ export class LaudosService {
     };
   }
 
-  async getRecentLaudos(usuarioId: string, limit: number = 5): Promise<Laudo[]> {
-    return await this.laudoRepository.find({
+  async getRecentLaudos(usuarioId: string, limit: number = 5): Promise<Partial<Laudo>[]> {
+    const laudos = await this.laudoRepository.find({
       where: { usuarioId },
       order: { createdAt: 'DESC' },
       take: limit,
     });
+    return laudos.map((l) => ({
+      id: l.id,
+      usuarioId: l.usuarioId,
+      endereco: l.endereco,
+      rua: l.rua,
+      numero: l.numero,
+      complemento: l.complemento,
+      bairro: l.bairro,
+      cidade: l.cidade,
+      estado: l.estado,
+      cep: l.cep,
+      tipoVistoria: l.tipoVistoria,
+      tipoUso: l.tipoUso,
+      tipoImovel: l.tipoImovel,
+      tipo: l.tipo,
+      unidade: l.unidade,
+      status: l.status,
+      tamanho: l.tamanho,
+      pdfUrl: l.pdfUrl,
+      totalAmbientes: l.totalAmbientes,
+      totalFotos: l.totalFotos,
+      latitude: l.latitude,
+      longitude: l.longitude,
+      enderecoCompletoGps: l.enderecoCompletoGps,
+      incluirAtestado: l.incluirAtestado,
+      createdAt: l.createdAt,
+      updatedAt: l.updatedAt,
+    }));
   }
 }

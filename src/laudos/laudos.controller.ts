@@ -62,14 +62,14 @@ export class LaudosController {
   async getRecentLaudos(
     @CurrentUser() user: any,
     @Query('limit') limit?: number,
-  ): Promise<Laudo[]> {
+  ): Promise<Partial<Laudo>[]> {
     return await this.laudosService.getRecentLaudos(user.id, limit || 5);
   }
 
   @Get('me')
   @ApiOperation({ summary: 'Listar todos os laudos do usuário logado' })
   @ApiResponse({ status: 200, description: 'Lista de laudos retornada com sucesso' })
-  async findMyLaudos(@CurrentUser() user: any): Promise<Laudo[]> {
+  async findMyLaudos(@CurrentUser() user: any): Promise<Partial<Laudo>[]> {
     return await this.laudosService.findByUsuario(user.id);
   }
 
@@ -77,7 +77,7 @@ export class LaudosController {
   @Roles(UserRole.DEV, UserRole.ADMIN)
   @ApiOperation({ summary: 'Listar todos os laudos (DEV/ADMIN)' })
   @ApiResponse({ status: 200, description: 'Lista retornada com sucesso' })
-  async findAll(): Promise<Laudo[]> {
+  async findAll(): Promise<Partial<Laudo>[]> {
     return await this.laudosService.findAll();
   }
 
@@ -88,6 +88,13 @@ export class LaudosController {
   @ApiResponse({ status: 404, description: 'Laudo não encontrado' })
   async findOne(@Param('id') id: string): Promise<Laudo> {
     return await this.laudosService.findOne(id);
+  }
+
+  @Get(':id/detalhes')
+  @ApiOperation({ summary: 'Buscar apenas os detalhes do laudo por ID' })
+  @ApiParam({ name: 'id', description: 'ID do laudo' })
+  async getLaudoDetalhes(@Param('id') id: string) {
+    return await this.laudosService.getLaudoDetalhes(id);
   }
 
   @Put(':id')
