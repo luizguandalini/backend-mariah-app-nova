@@ -103,7 +103,8 @@ export class LaudosController {
   @ApiOperation({ summary: 'Deletar laudo' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })
   @ApiResponse({ status: 204, description: 'Laudo deletado' })
-  async remove(@Param('id') id: string): Promise<void> {
-    return await this.laudosService.remove(id);
+  @ApiResponse({ status: 403, description: 'Sem permissão para deletar este laudo' })
+  async remove(@Param('id') id: string, @CurrentUser() user: any): Promise<void> {
+    return await this.laudosService.remove(id, user);
   }
 }

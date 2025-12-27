@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Laudo, StatusLaudo } from './entities/laudo.entity';
@@ -55,8 +60,17 @@ export class LaudosService {
     return await this.laudoRepository.save(laudo);
   }
 
-  async remove(id: string): Promise<void> {
+  async remove(id: string, user: any): Promise<void> {
     const laudo = await this.findOne(id);
+
+    // Verifica se o usuário é o dono do laudo ou é admin/dev
+    const isOwner = laudo.usuario.id === user.id;
+    const isAdminOrDev = user.role === 'ADMIN' || user.role === 'DEV';
+
+    if (!isOwner && !isAdminOrDev) {
+      throw new UnauthorizedException('Você não tem permissão para deletar este laudo');
+    }
+
     await this.laudoRepository.remove(laudo);
   }
 

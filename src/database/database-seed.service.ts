@@ -19,7 +19,47 @@ export class DatabaseSeedService implements OnModuleInit {
 
   async onModuleInit() {
     await this.createEnumTypes();
+    await this.expandEstadoColumn();
     await this.seedDevUser();
+  }
+
+  /**
+   * Expande a coluna estado de VARCHAR(2) para VARCHAR(50)
+   * para aceitar nomes completos de estados (ex: "São Paulo")
+   */
+  private async expandEstadoColumn(): Promise<void> {
+    try {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+
+      // Verifica o tamanho atual da coluna
+      const result = await queryRunner.query(`
+        SELECT character_maximum_length 
+        FROM information_schema.columns 
+        WHERE table_name = 'laudos' 
+        AND column_name = 'estado'
+      `);
+
+      const currentLength = result.length > 0 ? parseInt(result[0].character_maximum_length) : 0;
+      this.logger.log(`📊 Tamanho atual da coluna estado: ${currentLength}`);
+
+      if (currentLength > 0 && currentLength < 50) {
+        await queryRunner.query(`
+          ALTER TABLE "laudos" 
+          ALTER COLUMN "estado" TYPE varchar(50)
+        `);
+        this.logger.log('✅ Coluna estado expandida para VARCHAR(50)');
+      } else if (currentLength >= 50) {
+        this.logger.log('✅ Coluna estado já está com tamanho adequado (>= 50)');
+      }
+
+      await queryRunner.release();
+    } catch (error) {
+      // Se a tabela não existe ainda, ignora silenciosamente
+      if (!error.message?.includes('does not exist')) {
+        this.logger.warn('⚠️ Não foi possível expandir coluna estado:', error.message);
+      }
+    }
   }
 
   /**

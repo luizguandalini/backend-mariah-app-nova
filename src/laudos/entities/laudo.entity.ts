@@ -59,7 +59,7 @@ export class Laudo {
   @Column({ type: 'varchar', length: 100, nullable: true })
   cidade: string;
 
-  @Column({ type: 'varchar', length: 2, nullable: true })
+  @Column({ type: 'varchar', length: 50, nullable: true })
   estado: string;
 
   @Column({ type: 'varchar', length: 10, nullable: true })
