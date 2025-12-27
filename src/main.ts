@@ -40,7 +40,7 @@ async function bootstrap() {
 
   // Habilita CORS
   app.enableCors({
-    origin: ['http://localhost:5173', 'http://localhost:3000'],
+    origin: true, // Permite todas as origens em desenvolvimento
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -72,8 +72,25 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3000;
   await app.listen(port, '0.0.0.0');
-  console.log('🚀 Servidor rodando em http://localhost:' + port);
-  console.log('📚 Documentação disponível em http://localhost:' + port + '/api/docs');
+
+  // Descobre o IP local para exibir
+  const { networkInterfaces } = require('os');
+  const nets = networkInterfaces();
+  let localIp = 'localhost';
+
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family === 'IPv4' && !net.internal) {
+        localIp = net.address;
+        break;
+      }
+    }
+  }
+
+  console.log('🚀 Servidor rodando em:');
+  console.log('   - Local:   http://localhost:' + port);
+  console.log('   - Rede:    http://' + localIp + ':' + port);
+  console.log('📚 Documentação: http://' + localIp + ':' + port + '/api/docs');
   console.log('📊 Banco de dados: PostgreSQL (AWS)');
 }
 
