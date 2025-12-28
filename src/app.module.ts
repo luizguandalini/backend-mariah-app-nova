@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { AmbientesModule } from './ambientes/ambientes.module';
 import { LaudosModule } from './laudos/laudos.module';
+import { LaudoDetailsModule } from './laudo-details/laudo-details.module';
 import { DatabaseSeedService } from './database/database-seed.service';
 import { Usuario } from './users/entities/usuario.entity';
 
@@ -41,6 +42,7 @@ import { Usuario } from './users/entities/usuario.entity';
     UsersModule,
     AmbientesModule,
     LaudosModule,
+    LaudoDetailsModule,
   ],
   controllers: [AppController],
   providers: [AppService, DatabaseSeedService],
