@@ -3,15 +3,19 @@ import {
   NotFoundException,
   ForbiddenException,
   UnauthorizedException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Laudo, StatusLaudo } from './entities/laudo.entity';
 import { CreateLaudoDto } from './dto/create-laudo.dto';
 import { UpdateLaudoDto } from './dto/update-laudo.dto';
+import { UpdateLaudoDetalhesDto } from './dto/update-laudo-detalhes.dto';
 import { DashboardStatsDto } from './dto/dashboard-stats.dto';
 import { Usuario } from '../users/entities/usuario.entity';
 import { UserRole } from '../users/enums/user-role.enum';
+import { LaudoOption } from '../laudo-details/entities/laudo-option.entity';
+import { LaudoSection } from '../laudo-details/entities/laudo-section.entity';
 
 @Injectable()
 export class LaudosService {
@@ -20,6 +24,10 @@ export class LaudosService {
     private readonly laudoRepository: Repository<Laudo>,
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
+    @InjectRepository(LaudoOption)
+    private readonly optionRepository: Repository<LaudoOption>,
+    @InjectRepository(LaudoSection)
+    private readonly sectionRepository: Repository<LaudoSection>,
   ) {}
 
   async getLaudoDetalhes(id: string) {
@@ -27,7 +35,14 @@ export class LaudosService {
     if (!laudo) {
       throw new NotFoundException('Laudo não encontrado');
     }
-    // Retorna apenas os campos de detalhes
+
+    // Buscar todas as seções com suas perguntas e opções
+    const sections = await this.sectionRepository.find({
+      relations: ['questions', 'questions.options'],
+      order: { createdAt: 'ASC' },
+    });
+
+    // Retorna os detalhes do laudo + estrutura completa para edição
     return {
       incluirAtestado: laudo.incluirAtestado,
       atestado: laudo.atestado,
@@ -37,6 +52,8 @@ export class LaudosService {
       mecanismosAbertura: laudo.mecanismosAbertura,
       revestimentos: laudo.revestimentos,
       mobilias: laudo.mobilias,
+      // Estrutura completa para construir formulário de edição
+      availableSections: sections,
     };
   }
 
@@ -126,6 +143,112 @@ export class LaudosService {
     }
 
     return laudo;
+  }
+
+  async updateLaudoDetalhes(
+    id: string,
+    updateDto: UpdateLaudoDetalhesDto,
+    user: any,
+  ): Promise<Laudo> {
+    const laudo = await this.laudoRepository.findOne({
+      where: { id },
+      relations: ['usuario'],
+    });
+
+    if (!laudo) {
+      throw new NotFoundException('Laudo não encontrado');
+    }
+
+    // Verifica permissão (dono ou admin/dev)
+    const isOwner = laudo.usuario.id === user.id;
+    const isAdminOrDev = user.role === UserRole.ADMIN || user.role === UserRole.DEV;
+
+    if (!isOwner && !isAdminOrDev) {
+      throw new UnauthorizedException(
+        'Você não tem permissão para editar este laudo',
+      );
+    }
+
+    // Validar todas as opções fornecidas
+    await this.validateLaudoDetalhes(updateDto);
+
+    // Atualizar apenas os campos de detalhes
+    if (updateDto.atestado !== undefined) {
+      laudo.atestado = updateDto.atestado;
+    }
+    if (updateDto.analisesHidraulicas !== undefined) {
+      laudo.analisesHidraulicas = updateDto.analisesHidraulicas as any;
+    }
+    if (updateDto.analisesEletricas !== undefined) {
+      laudo.analisesEletricas = updateDto.analisesEletricas as any;
+    }
+    if (updateDto.sistemaAr !== undefined) {
+      laudo.sistemaAr = updateDto.sistemaAr as any;
+    }
+    if (updateDto.mecanismosAbertura !== undefined) {
+      laudo.mecanismosAbertura = updateDto.mecanismosAbertura as any;
+    }
+    if (updateDto.revestimentos !== undefined) {
+      laudo.revestimentos = updateDto.revestimentos as any;
+    }
+    if (updateDto.mobilias !== undefined) {
+      laudo.mobilias = updateDto.mobilias as any;
+    }
+
+    return await this.laudoRepository.save(laudo);
+  }
+
+  /**
+   * Valida se todos os valores fornecidos existem como opções cadastradas
+   */
+  private async validateLaudoDetalhes(
+    updateDto: UpdateLaudoDetalhesDto,
+  ): Promise<void> {
+    const valuesToValidate: string[] = [];
+
+    // Coletar todos os valores não-vazios
+    if (updateDto.atestado) {
+      valuesToValidate.push(updateDto.atestado);
+    }
+
+    const collectValues = (obj: any) => {
+      if (obj && typeof obj === 'object') {
+        Object.values(obj).forEach((value) => {
+          if (typeof value === 'string' && value.trim() !== '') {
+            valuesToValidate.push(value);
+          }
+        });
+      }
+    };
+
+    collectValues(updateDto.analisesHidraulicas);
+    collectValues(updateDto.analisesEletricas);
+    collectValues(updateDto.sistemaAr);
+    collectValues(updateDto.mecanismosAbertura);
+    collectValues(updateDto.revestimentos);
+    collectValues(updateDto.mobilias);
+
+    if (valuesToValidate.length === 0) {
+      return; // Nada para validar
+    }
+
+    // Buscar todas as opções válidas do banco
+    const validOptions = await this.optionRepository.find({
+      select: ['optionText'],
+    });
+
+    const validTexts = new Set(validOptions.map((opt) => opt.optionText));
+
+    // Verificar se todos os valores fornecidos são válidos
+    const invalidValues = valuesToValidate.filter(
+      (value) => !validTexts.has(value),
+    );
+
+    if (invalidValues.length > 0) {
+      throw new BadRequestException(
+        `Os seguintes valores não são opções válidas: ${invalidValues.join(', ')}`,
+      );
+    }
   }
 
   async update(id: string, updateLaudoDto: UpdateLaudoDto): Promise<Laudo> {

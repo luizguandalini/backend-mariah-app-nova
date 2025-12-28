@@ -5,6 +5,7 @@ import {
   Body,
   Param,
   Put,
+  Patch,
   Delete,
   UseGuards,
   HttpCode,
@@ -22,6 +23,7 @@ import {
 import { LaudosService } from './laudos.service';
 import { CreateLaudoDto } from './dto/create-laudo.dto';
 import { UpdateLaudoDto } from './dto/update-laudo.dto';
+import { UpdateLaudoDetalhesDto } from './dto/update-laudo-detalhes.dto';
 import { DashboardStatsDto } from './dto/dashboard-stats.dto';
 import { Laudo } from './entities/laudo.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -95,6 +97,20 @@ export class LaudosController {
   @ApiParam({ name: 'id', description: 'ID do laudo' })
   async getLaudoDetalhes(@Param('id') id: string) {
     return await this.laudosService.getLaudoDetalhes(id);
+  }
+
+  @Patch(':id/detalhes')
+  @ApiOperation({ summary: 'Atualizar apenas os detalhes do questionário do laudo' })
+  @ApiParam({ name: 'id', description: 'ID do laudo' })
+  @ApiResponse({ status: 200, description: 'Detalhes atualizados com sucesso' })
+  @ApiResponse({ status: 400, description: 'Valores inválidos fornecidos' })
+  @ApiResponse({ status: 401, description: 'Sem permissão para editar este laudo' })
+  async updateLaudoDetalhes(
+    @Param('id') id: string,
+    @Body() updateDto: UpdateLaudoDetalhesDto,
+    @CurrentUser() user: any,
+  ): Promise<Laudo> {
+    return await this.laudosService.updateLaudoDetalhes(id, updateDto, user);
   }
 
   @Put(':id')
