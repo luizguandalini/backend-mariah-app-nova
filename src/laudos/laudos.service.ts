@@ -11,6 +11,7 @@ import { Laudo, StatusLaudo } from './entities/laudo.entity';
 import { CreateLaudoDto } from './dto/create-laudo.dto';
 import { UpdateLaudoDto } from './dto/update-laudo.dto';
 import { UpdateLaudoDetalhesDto } from './dto/update-laudo-detalhes.dto';
+import { UpdateLaudoEnderecoDto } from './dto/update-laudo-endereco.dto';
 import { DashboardStatsDto } from './dto/dashboard-stats.dto';
 import { Usuario } from '../users/entities/usuario.entity';
 import { UserRole } from '../users/enums/user-role.enum';
@@ -193,6 +194,72 @@ export class LaudosService {
     }
     if (updateDto.mobilias !== undefined) {
       laudo.mobilias = updateDto.mobilias as any;
+    }
+
+    return await this.laudoRepository.save(laudo);
+  }
+
+  async updateLaudoEndereco(
+    id: string,
+    updateDto: UpdateLaudoEnderecoDto,
+    user: any,
+  ): Promise<Laudo> {
+    const laudo = await this.laudoRepository.findOne({
+      where: { id },
+      relations: ['usuario'],
+    });
+
+    if (!laudo) {
+      throw new NotFoundException('Laudo não encontrado');
+    }
+
+    // Verifica permissão (dono ou admin/dev)
+    const isOwner = laudo.usuario.id === user.id;
+    const isAdminOrDev = user.role === UserRole.ADMIN || user.role === UserRole.DEV;
+
+    if (!isOwner && !isAdminOrDev) {
+      throw new UnauthorizedException(
+        'Você não tem permissão para editar este laudo',
+      );
+    }
+
+    // Atualizar apenas os campos de endereço fornecidos
+    if (updateDto.cep !== undefined) {
+      // Normalizar CEP removendo hífen se necessário
+      laudo.cep = updateDto.cep.replace('-', '');
+    }
+    if (updateDto.rua !== undefined) {
+      laudo.rua = updateDto.rua;
+    }
+    if (updateDto.numero !== undefined) {
+      laudo.numero = updateDto.numero;
+    }
+    if (updateDto.complemento !== undefined) {
+      laudo.complemento = updateDto.complemento;
+    }
+    if (updateDto.bairro !== undefined) {
+      laudo.bairro = updateDto.bairro;
+    }
+    if (updateDto.cidade !== undefined) {
+      laudo.cidade = updateDto.cidade;
+    }
+    if (updateDto.estado !== undefined) {
+      laudo.estado = updateDto.estado;
+    }
+
+    // Atualizar campo endereco completo para compatibilidade
+    const enderecoCompleto = [
+      laudo.rua,
+      laudo.numero,
+      laudo.bairro,
+      laudo.cidade,
+      laudo.estado,
+    ]
+      .filter(Boolean)
+      .join(', ');
+    
+    if (enderecoCompleto) {
+      laudo.endereco = enderecoCompleto;
     }
 
     return await this.laudoRepository.save(laudo);

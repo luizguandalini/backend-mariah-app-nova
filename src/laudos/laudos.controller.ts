@@ -24,6 +24,7 @@ import { LaudosService } from './laudos.service';
 import { CreateLaudoDto } from './dto/create-laudo.dto';
 import { UpdateLaudoDto } from './dto/update-laudo.dto';
 import { UpdateLaudoDetalhesDto } from './dto/update-laudo-detalhes.dto';
+import { UpdateLaudoEnderecoDto } from './dto/update-laudo-endereco.dto';
 import { DashboardStatsDto } from './dto/dashboard-stats.dto';
 import { Laudo } from './entities/laudo.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -111,6 +112,21 @@ export class LaudosController {
     @CurrentUser() user: any,
   ): Promise<Laudo> {
     return await this.laudosService.updateLaudoDetalhes(id, updateDto, user);
+  }
+
+  @Patch(':id/endereco')
+  @ApiOperation({ summary: 'Atualizar endereço do laudo' })
+  @ApiParam({ name: 'id', description: 'ID do laudo' })
+  @ApiResponse({ status: 200, description: 'Endereço atualizado com sucesso' })
+  @ApiResponse({ status: 400, description: 'Dados de endereço inválidos' })
+  @ApiResponse({ status: 401, description: 'Sem permissão para editar este laudo' })
+  @ApiResponse({ status: 404, description: 'Laudo não encontrado' })
+  async updateLaudoEndereco(
+    @Param('id') id: string,
+    @Body() updateDto: UpdateLaudoEnderecoDto,
+    @CurrentUser() user: any,
+  ): Promise<Laudo> {
+    return await this.laudosService.updateLaudoEndereco(id, updateDto, user);
   }
 
   @Put(':id')
