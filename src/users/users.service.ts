@@ -72,19 +72,41 @@ export class UsersService {
   async update(id: string, updateUsuarioDto: UpdateUsuarioDto, currentUser: any): Promise<Usuario> {
     const usuario = await this.findOne(id);
 
-    // Bloqueia edição de role para DEV
+    // Permissões:
+    // 1. Usuário pode editar a si mesmo (mas com restrições de campos)
+    // 2. ADMIN/DEV podem editar qualquer um (com restrições para o role DEV)
+    
+    const isEditingSelf = currentUser.id === id;
+    const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(currentUser.role);
+
+    if (!isEditingSelf && !isAdminOrDev) {
+      throw new ForbiddenException('Você não tem permissão para atualizar este usuário');
+    }
+
+    // Se não for admin/dev, só pode editar o próprio NOME
+    if (isEditingSelf && !isAdminOrDev) {
+      // Remove campos sensíveis se o usuário comum tentar enviar
+      const { nome } = updateUsuarioDto;
+      updateUsuarioDto = { nome } as UpdateUsuarioDto;
+      
+      if (!nome) {
+        throw new ForbiddenException('Apenas o nome pode ser editado pelo próprio usuário');
+      }
+    }
+
+    // Bloqueia edição de role para DEV (mesmo para ADMIN)
     if (updateUsuarioDto.role === UserRole.DEV) {
       throw new ForbiddenException('Não é permitido criar ou alterar para role DEV');
     }
 
     // Não permite alterar role de um DEV existente
-    if (usuario.role === UserRole.DEV) {
+    if (usuario.role === UserRole.DEV && !isEditingSelf) {
       throw new ForbiddenException('Não é permitido alterar dados de usuário DEV');
     }
 
     // Só DEV e ADMIN podem alterar quantidadeImagens
     if (updateUsuarioDto.quantidadeImagens !== undefined) {
-      if (![UserRole.DEV, UserRole.ADMIN].includes(currentUser.role)) {
+      if (!isAdminOrDev) {
         throw new ForbiddenException('Você não tem permissão para alterar quantidade de imagens');
       }
     }

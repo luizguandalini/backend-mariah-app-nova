@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsString, MinLength, IsOptional, IsEnum } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, MinLength, MaxLength, IsOptional, IsEnum, Matches } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { UserRole } from '../enums/user-role.enum';
 
@@ -10,6 +10,10 @@ export class CreateUsuarioDto {
   })
   @IsNotEmpty({ message: 'O nome é obrigatório' })
   @IsString({ message: 'O nome deve ser um texto' })
+  @MaxLength(100, { message: 'O nome deve ter no máximo 100 caracteres' })
+  @Matches(/^[a-zA-ZÀ-ÿ\s'-]+$/, { 
+    message: 'O nome deve conter apenas letras, espaços, hifens ou apóstrofos' 
+  })
   nome: string;
 
   @ApiProperty({
