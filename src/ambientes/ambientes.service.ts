@@ -151,7 +151,7 @@ export class AmbientesService {
           itensMap.set(item.nome, {
             id: item.id,
             nome: item.nome,
-            prompt: item.prompt,
+            descricao: item.descricao,
             ordem: item.ordem,
           });
         }
@@ -218,7 +218,7 @@ export class AmbientesService {
             itensMap.set(item.nome, {
               id: item.id,
               nome: item.nome,
-              prompt: item.prompt,
+              descricao: item.descricao,
               ordem: item.ordem,
             });
           }

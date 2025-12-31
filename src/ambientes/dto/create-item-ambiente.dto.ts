@@ -22,6 +22,16 @@ export class CreateItemAmbienteDto {
   prompt: string;
 
   @ApiProperty({
+    description: 'Descrição exibida no app mobile (apenas para itens PAI)',
+    example: 'Fotografe a porta principal do ambiente',
+    required: false,
+    type: String,
+  })
+  @IsOptional()
+  @IsString({ message: 'A descrição deve ser um texto' })
+  descricao?: string;
+
+  @ApiProperty({
     description: 'ID do item pai (para criar hierarquia)',
     example: '550e8400-e29b-41d4-a716-446655440000',
     required: false,

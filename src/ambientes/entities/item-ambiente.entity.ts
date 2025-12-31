@@ -29,6 +29,9 @@ export class ItemAmbiente {
   @Column({ type: 'text' })
   prompt: string;
 
+  @Column({ type: 'text', nullable: true })
+  descricao: string;
+
   @Column({ type: 'int', default: 0 })
   ordem: number;
 
