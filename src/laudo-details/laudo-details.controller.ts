@@ -19,6 +19,17 @@ import {
 export class LaudoDetailsController {
   constructor(private readonly laudoDetailsService: LaudoDetailsService) {}
 
+  /**
+   * Endpoint público para sincronização de cache (app mobile)
+   * Retorna todas as seções ativas com perguntas e opções
+   * ATENÇÃO: Acessível a TODOS os usuários autenticados (não apenas DEV/ADMIN)
+   */
+  @Get('todos-com-estrutura')
+  @Roles(UserRole.USUARIO, UserRole.FUNCIONARIO, UserRole.DEV, UserRole.ADMIN) // Permitir todos os types de usuário
+  getTodosComEstrutura() {
+    return this.laudoDetailsService.getTodosComEstrutura();
+  }
+
   // Sections
   @Post('sections')
   createSection(@Body() dto: CreateLaudoSectionDto) {

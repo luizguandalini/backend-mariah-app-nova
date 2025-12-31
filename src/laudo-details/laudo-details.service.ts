@@ -24,6 +24,53 @@ export class LaudoDetailsService {
     private optionRepository: Repository<LaudoOption>,
   ) {}
 
+  /**
+   * Buscar todas as seções ativas com perguntas e opções para sincronização (app mobile)
+   * Retorna estrutura completa com timestamp de última atualização
+   */
+  async getTodosComEstrutura(): Promise<any> {
+    // Buscar todas as seções ativas ordenadas
+    const secoes = await this.sectionRepository.find({
+      where: { ativo: true },
+      relations: ['questions', 'questions.options'],
+      order: {
+        ordem: 'ASC',
+        questions: {
+          ordem: 'ASC',
+          options: {
+            ordem: 'ASC',
+          },
+        },
+      },
+    });
+
+    // Filtrar apenas perguntas e opções ativas
+    const secoesFormatadas = secoes.map((secao) => ({
+      id: secao.id,
+      nome: secao.name,
+      ordem: secao.ordem,
+      perguntas: secao.questions
+        .filter((q) => q.ativo)
+        .map((pergunta) => ({
+          id: pergunta.id,
+          texto: pergunta.questionText,
+          ordem: pergunta.ordem,
+          opcoes: pergunta.options
+            .filter((o) => o.ativo)
+            .map((opcao) => ({
+              id: opcao.id,
+              texto: opcao.optionText,
+              ordem: opcao.ordem,
+            })),
+        })),
+    }));
+
+    return {
+      secoes: secoesFormatadas,
+      ultima_atualizacao: new Date().toISOString(),
+    };
+  }
+
   // Sections
   async createSection(dto: CreateLaudoSectionDto): Promise<LaudoSection> {
     const section = this.sectionRepository.create(dto);

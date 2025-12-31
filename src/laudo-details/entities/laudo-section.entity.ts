@@ -16,6 +16,12 @@ export class LaudoSection {
   @Column({ type: 'varchar', length: 255 })
   name: string;
 
+  @Column({ type: 'int', default: 0 })
+  ordem: number;
+
+  @Column({ type: 'boolean', default: true })
+  ativo: boolean;
+
   @OneToMany(() => LaudoQuestion, (question) => question.section, { cascade: true })
   questions: LaudoQuestion[];
 

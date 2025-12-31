@@ -24,6 +24,12 @@ export class LaudoOption {
   @Column({ type: 'varchar', length: 500 })
   optionText: string;
 
+  @Column({ type: 'int', default: 0 })
+  ordem: number;
+
+  @Column({ type: 'boolean', default: true })
+  ativo: boolean;
+
   @CreateDateColumn({
     name: 'created_at',
     type: 'timestamptz',

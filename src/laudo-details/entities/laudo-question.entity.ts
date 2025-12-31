@@ -26,6 +26,12 @@ export class LaudoQuestion {
   @Column({ type: 'varchar', length: 500, nullable: true })
   questionText: string; // Pode ser null se não houver pergunta específica
 
+  @Column({ type: 'int', default: 0 })
+  ordem: number;
+
+  @Column({ type: 'boolean', default: true })
+  ativo: boolean;
+
   @OneToMany(() => LaudoOption, (option) => option.question, { cascade: true })
   options: LaudoOption[];
 
