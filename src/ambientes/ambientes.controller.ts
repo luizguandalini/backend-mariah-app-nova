@@ -46,6 +46,27 @@ export class AmbientesController {
     return this.ambientesService.findAllWithTree();
   }
 
+  @Get('listar-nomes')
+  @ApiOperation({ summary: 'Listar todos os nomes de ambientes disponíveis' })
+  listarNomes() {
+    return this.ambientesService.listarNomes();
+  }
+
+  @Get('todos-com-itens')
+  @ApiOperation({ 
+    summary: 'Buscar todos os ambientes com seus itens PAI para sincronização (app mobile)',
+    description: 'Retorna todos os ambientes ativos consolidados com seus itens PAI, incluindo timestamp de última atualização. Usado para cache local no app.'
+  })
+  getTodosComItens() {
+    return this.ambientesService.getTodosComItens();
+  }
+
+  @Get('itens-por-nome/:nome')
+  @ApiOperation({ summary: 'Buscar itens PAI de um ambiente por nome (para app mobile)' })
+  getItensPorNome(@Param('nome') nome: string) {
+    return this.ambientesService.getItensPorNome(nome);
+  }
+
   @Get('arvore-completa/paginado')
   @ApiOperation({
     summary: 'Listar ambientes com árvore completa paginados (para scroll infinito)',

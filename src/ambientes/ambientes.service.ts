@@ -90,6 +90,162 @@ export class AmbientesService {
     };
   }
 
+  /**
+   * Listar todos os nomes de ambientes disponíveis (para app mobile)
+   */
+  async listarNomes(): Promise<string[]> {
+    const ambientes = await this.ambienteRepository.find({
+      where: { ativo: true },
+      select: ['nome'],
+      order: { nome: 'ASC' },
+    });
+
+    // Retornar lista de nomes únicos
+    const nomes = [...new Set(ambientes.map((a) => a.nome))];
+    return nomes;
+  }
+
+  /**
+   * Buscar itens PAI de um ambiente por nome (para app mobile - câmera)
+   * - Busca ambiente(s) pelo nome (case-insensitive)
+   * - Se ambiente faz parte de grupo, consolida itens de todos do grupo
+   * - Retorna apenas itens PAI (parentId = null)
+   * - Ordena por campo ordem
+   */
+  async getItensPorNome(nome: string): Promise<any[]> {
+    // Buscar ambiente(s) com o nome fornecido (case-insensitive)
+    const ambientes = await this.ambienteRepository
+      .createQueryBuilder('ambiente')
+      .where('LOWER(ambiente.nome) = LOWER(:nome)', { nome })
+      .andWhere('ambiente.ativo = :ativo', { ativo: true })
+      .getMany();
+
+    if (ambientes.length === 0) {
+      throw new NotFoundException(
+        `Ambiente "${nome}" não encontrado. Verifique o nome ou escolha da lista de ambientes disponíveis.`,
+      );
+    }
+
+    // Se o primeiro ambiente tem grupoId, buscar todos do grupo
+    const primeiroAmbiente = ambientes[0];
+    let ambientesParaBuscar = ambientes;
+
+    if (primeiroAmbiente.grupoId) {
+      ambientesParaBuscar = await this.ambienteRepository.find({
+        where: { grupoId: primeiroAmbiente.grupoId, ativo: true },
+      });
+    }
+
+    // Buscar todos os itens PAI desses ambientes
+    const itensMap = new Map<string, any>();
+
+    for (const ambiente of ambientesParaBuscar) {
+      const itens = await this.itensAmbienteService.findAllByAmbiente(ambiente.id);
+
+      // Filtrar apenas itens PAI (parentId = null) e ativos
+      const itensPai = itens.filter((item) => !item.parentId && item.ativo);
+
+      // Consolidar itens únicos por nome
+      for (const item of itensPai) {
+        if (!itensMap.has(item.nome)) {
+          itensMap.set(item.nome, {
+            id: item.id,
+            nome: item.nome,
+            prompt: item.prompt,
+            ordem: item.ordem,
+          });
+        }
+      }
+    }
+
+    // Converter Map para array e ordenar por ordem
+    const itensUnicos = Array.from(itensMap.values()).sort(
+      (a, b) => a.ordem - b.ordem,
+    );
+
+    return itensUnicos;
+  }
+
+  /**
+   * Buscar todos os ambientes com seus itens PAI para sincronização (app mobile)
+   * Retorna estrutura consolidada para cache local no dispositivo
+   */
+  async getTodosComItens(): Promise<any> {
+    // Buscar todos os ambientes ativos
+    const todosAmbientes = await this.ambienteRepository.find({
+      where: { ativo: true },
+      order: { nome: 'ASC' },
+    });
+
+    if (todosAmbientes.length === 0) {
+      return {
+        ambientes: [],
+        ultima_atualizacao: new Date().toISOString(),
+      };
+    }
+
+    // Mapear ambientes únicos por nome (consolidando grupos)
+    const ambientesMap = new Map<string, any>();
+
+    for (const ambiente of todosAmbientes) {
+      // Se já processamos este nome, pular (já consolidou itens do grupo)
+      if (ambientesMap.has(ambiente.nome)) {
+        continue;
+      }
+
+      // Buscar ambientes relacionados (mesmo nome ou mesmo grupo)
+      let ambientesRelacionados = [ambiente];
+      if (ambiente.grupoId) {
+        ambientesRelacionados = todosAmbientes.filter(
+          (a) => a.grupoId === ambiente.grupoId
+        );
+      }
+
+      // Consolidar itens PAI de todos os ambientes relacionados
+      const itensMap = new Map<string, any>();
+
+      for (const ambRel of ambientesRelacionados) {
+        const itens = await this.itensAmbienteService.findAllByAmbiente(
+          ambRel.id
+        );
+
+        // Filtrar apenas itens PAI (parentId = null) e ativos
+        const itensPai = itens.filter((item) => !item.parentId && item.ativo);
+
+        // Consolidar itens únicos por nome
+        for (const item of itensPai) {
+          if (!itensMap.has(item.nome)) {
+            itensMap.set(item.nome, {
+              id: item.id,
+              nome: item.nome,
+              prompt: item.prompt,
+              ordem: item.ordem,
+            });
+          }
+        }
+      }
+
+      // Converter Map para array e ordenar por ordem
+      const itensUnicos = Array.from(itensMap.values()).sort(
+        (a, b) => a.ordem - b.ordem
+      );
+
+      // Adicionar ao mapa de ambientes
+      ambientesMap.set(ambiente.nome, {
+        nome: ambiente.nome,
+        itens: itensUnicos,
+      });
+    }
+
+    // Converter Map para array
+    const ambientes = Array.from(ambientesMap.values());
+
+    return {
+      ambientes,
+      ultima_atualizacao: new Date().toISOString(),
+    };
+  }
+
   private async buildAmbientesTree(ambientes: Ambiente[]): Promise<any[]> {
     // Agrupar ambientes com mesmo grupoId
     const grupos = new Map<string, any>();
