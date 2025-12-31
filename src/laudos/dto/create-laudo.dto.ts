@@ -149,4 +149,9 @@ export class CreateLaudoDto {
   @IsObject()
   @IsOptional()
   mobilias?: object;
+
+  @ApiPropertyOptional({ description: 'Dados extras de seções dinâmicas (JSON)' })
+  @IsObject()
+  @IsOptional()
+  dadosExtra?: object;
 }

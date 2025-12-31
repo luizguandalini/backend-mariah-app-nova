@@ -138,4 +138,9 @@ export class UpdateLaudoDetalhesDto {
   @Type(() => MobiliasDto)
   @IsOptional()
   mobilias?: MobiliasDto;
+
+  @ApiPropertyOptional({ description: 'Dados extras de seções dinâmicas' })
+  @IsObject()
+  @IsOptional()
+  dadosExtra?: object;
 }

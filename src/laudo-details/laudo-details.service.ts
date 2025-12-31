@@ -44,26 +44,41 @@ export class LaudoDetailsService {
       },
     });
 
-    // Filtrar apenas perguntas e opções ativas
-    const secoesFormatadas = secoes.map((secao) => ({
-      id: secao.id,
-      nome: secao.name,
-      ordem: secao.ordem,
-      perguntas: secao.questions
-        .filter((q) => q.ativo)
-        .map((pergunta) => ({
-          id: pergunta.id,
-          texto: pergunta.questionText,
-          ordem: pergunta.ordem,
-          opcoes: pergunta.options
-            .filter((o) => o.ativo)
-            .map((opcao) => ({
-              id: opcao.id,
-              texto: opcao.optionText,
-              ordem: opcao.ordem,
-            })),
-        })),
-    }));
+    // Filtrar apenas perguntas e opções ativas, e garantir que a estrutura esteja completa
+    const secoesFormatadas = secoes
+      .map((secao) => {
+        const perguntasValidas = secao.questions
+          .filter((q) => q.ativo)
+          .map((pergunta) => {
+            const opcoesValidas = pergunta.options.filter((o) => o.ativo);
+
+            // Só retorna a pergunta se tiver pelo menos uma opção ativa
+            if (opcoesValidas.length === 0) return null;
+
+            return {
+              id: pergunta.id,
+              texto: pergunta.questionText,
+              ordem: pergunta.ordem,
+              opcoes: opcoesValidas.map((opcao) => ({
+                id: opcao.id,
+                texto: opcao.optionText,
+                ordem: opcao.ordem,
+              })),
+            };
+          })
+          .filter((q) => q !== null); // Remove perguntas sem opções
+
+        // Só retorna a seção se tiver pelo menos uma pergunta válida
+        if (perguntasValidas.length === 0) return null;
+
+        return {
+          id: secao.id,
+          nome: secao.name,
+          ordem: secao.ordem,
+          perguntas: perguntasValidas,
+        };
+      })
+      .filter((s) => s !== null); // Remove seções sem perguntas válidas
 
     return {
       secoes: secoesFormatadas,

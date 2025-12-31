@@ -53,6 +53,7 @@ export class LaudosService {
       mecanismosAbertura: laudo.mecanismosAbertura,
       revestimentos: laudo.revestimentos,
       mobilias: laudo.mobilias,
+      dadosExtra: laudo.dadosExtra,
       // Estrutura completa para construir formulário de edição
       availableSections: sections,
     };
@@ -195,6 +196,9 @@ export class LaudosService {
     if (updateDto.mobilias !== undefined) {
       laudo.mobilias = updateDto.mobilias as any;
     }
+    if (updateDto.dadosExtra !== undefined) {
+      laudo.dadosExtra = updateDto.dadosExtra;
+    }
 
     return await this.laudoRepository.save(laudo);
   }
@@ -294,6 +298,7 @@ export class LaudosService {
     collectValues(updateDto.mecanismosAbertura);
     collectValues(updateDto.revestimentos);
     collectValues(updateDto.mobilias);
+    collectValues(updateDto.dadosExtra);
 
     if (valuesToValidate.length === 0) {
       return; // Nada para validar

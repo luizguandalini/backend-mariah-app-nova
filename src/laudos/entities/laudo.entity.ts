@@ -135,6 +135,9 @@ export class Laudo {
   @Column({ type: 'jsonb', nullable: true })
   mobilias: object; // {fixa: string, nao_fixa: string}
 
+  @Column({ name: 'dados_extra', type: 'jsonb', nullable: true })
+  dadosExtra: object; // { [sectionName]: { [question]: answer } }
+
   @CreateDateColumn({
     name: 'created_at',
     type: 'timestamptz',
