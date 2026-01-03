@@ -1,0 +1,10 @@
+{
+  "name": "lambda-extract-metadata",
+  "version": "1.0.0",
+  "description": "Lambda para extrair metadados EXIF de imagens enviadas ao S3",
+  "main": "index.js",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.x",
+    "pg": "^8.x"
+  }
+}
