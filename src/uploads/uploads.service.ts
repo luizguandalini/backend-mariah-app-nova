@@ -357,4 +357,35 @@ export class UploadsService {
     // Deletar do banco
     await this.imagemLaudoRepository.remove(imagem);
   }
+
+  /**
+   * Deleta todas as imagens de um laudo do S3
+   * Nota: Não deleta do banco, pois o CASCADE no Laudo fará isso
+   */
+  async deleteImagensByLaudo(laudoId: string): Promise<void> {
+    const imagens = await this.imagemLaudoRepository.find({
+      where: { laudoId },
+      select: ['s3Key'],
+    });
+
+    if (imagens.length === 0) {
+      return;
+    }
+
+    // Deletar em paralelo no S3
+    await Promise.all(
+      imagens.map(async (img) => {
+        try {
+          const command = new DeleteObjectCommand({
+            Bucket: this.bucketName,
+            Key: img.s3Key,
+          });
+          await this.s3Client.send(command);
+        } catch (error) {
+          console.error(`Erro ao deletar imagem S3 (${img.s3Key}):`, error);
+          // Continua para tentar deletar as outras
+        }
+      }),
+    );
+  }
 }

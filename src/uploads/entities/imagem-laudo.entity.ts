@@ -14,7 +14,7 @@ export class ImagemLaudo {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => Laudo)
+  @ManyToOne(() => Laudo, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'laudo_id' })
   laudo: Laudo;
 

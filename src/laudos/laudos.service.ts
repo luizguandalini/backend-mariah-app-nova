@@ -18,6 +18,8 @@ import { UserRole } from '../users/enums/user-role.enum';
 import { LaudoOption } from '../laudo-details/entities/laudo-option.entity';
 import { LaudoSection } from '../laudo-details/entities/laudo-section.entity';
 
+import { UploadsService } from '../uploads/uploads.service';
+
 @Injectable()
 export class LaudosService {
   constructor(
@@ -29,7 +31,28 @@ export class LaudosService {
     private readonly optionRepository: Repository<LaudoOption>,
     @InjectRepository(LaudoSection)
     private readonly sectionRepository: Repository<LaudoSection>,
+    private readonly uploadsService: UploadsService,
   ) {}
+
+
+
+  async remove(id: string, user: any): Promise<void> {
+    const laudo = await this.findOne(id);
+
+    // Verifica se o usuário é o dono do laudo ou é admin/dev
+    const isOwner = laudo.usuario.id === user.id;
+    const isAdminOrDev = user.role === 'ADMIN' || user.role === 'DEV';
+
+    if (!isOwner && !isAdminOrDev) {
+      throw new UnauthorizedException('Você não tem permissão para deletar este laudo');
+    }
+
+    // 1. Deletar imagens do S3 primeiro
+    await this.uploadsService.deleteImagensByLaudo(id);
+
+    // 2. O remove do laudo irá disparar o CASCADE para as imagens no banco
+    await this.laudoRepository.remove(laudo);
+  }
 
   async getLaudoDetalhes(id: string) {
     const laudo = await this.laudoRepository.findOne({ where: { id } });
@@ -329,19 +352,7 @@ export class LaudosService {
     return await this.laudoRepository.save(laudo);
   }
 
-  async remove(id: string, user: any): Promise<void> {
-    const laudo = await this.findOne(id);
 
-    // Verifica se o usuário é o dono do laudo ou é admin/dev
-    const isOwner = laudo.usuario.id === user.id;
-    const isAdminOrDev = user.role === 'ADMIN' || user.role === 'DEV';
-
-    if (!isOwner && !isAdminOrDev) {
-      throw new UnauthorizedException('Você não tem permissão para deletar este laudo');
-    }
-
-    await this.laudoRepository.remove(laudo);
-  }
 
   async getDashboardStats(usuarioId: string): Promise<DashboardStatsDto> {
     const usuario = await this.usuarioRepository.findOne({
