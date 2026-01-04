@@ -4,6 +4,9 @@ const { Client } = require('pg');
 // Configuração do S3
 const s3Client = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
 
+// Importar parser de EXIF
+const exifParser = require('exif-parser');
+
 // Converte stream para buffer
 async function streamToBuffer(stream) {
   const chunks = [];
@@ -15,27 +18,61 @@ async function streamToBuffer(stream) {
 
 // Extrai metadados EXIF (UserComment contém nossos metadados em JSON)
 function extractMetadata(buffer) {
+  let metadata = null;
+
+  // 1. Tentar extrair via EXIF (Mais robusto para JPEGs)
   try {
-    // Procura pelo marcador EXIF UserComment que contém nosso JSON
-    const bufferStr = buffer.toString('latin1');
+    const parser = exifParser.create(buffer);
+    const result = parser.parse();
     
-    // Procura por padrão de JSON no buffer (ambiente, tipo, categoria, etc.)
+    let userComment = result.tags.UserComment;
+    
+    if (userComment) {
+        // Limpar encoding
+        if (Buffer.isBuffer(userComment)) {
+          userComment = userComment.toString('utf8');
+          userComment = userComment.replace(/^ASCII\0+/, '').replace(/^UNICODE\0+/, '').replace(/\0/g, '');
+        } else if (typeof userComment === 'string') {
+            userComment = userComment.replace(/^ASCII\0+/, '').replace(/^UNICODE\0+/, '').replace(/\0/g, '');
+        }
+
+        // Tentar parsear o JSON
+        const jsonStart = userComment.indexOf('{');
+        const jsonEnd = userComment.lastIndexOf('}');
+        
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+            const jsonStr = userComment.substring(jsonStart, jsonEnd + 1);
+            metadata = JSON.parse(jsonStr);
+        }
+    }
+  } catch (error) {
+     // Ignorar erro de parsing EXIF (pode não ser JPEG) e tentar fallback
+     // console.log('EXIF process falhou ou não aplicável:', error.message);
+  }
+
+  if (metadata) return metadata;
+
+  // 2. Fallback: Busca via Regex no buffer bruto (Original / Compatibilidade com outros formatos)
+  console.log('Metadados não encontrados via EXIF, tentando fallback via Regex...');
+  try {
+    const bufferStr = buffer.toString('latin1');
     const jsonPattern = /\{"ambiente"[^}]+\}/;
     const match = bufferStr.match(jsonPattern);
     
     if (match) {
+      console.log('Metadados encontrados via fallback Regex.');
       return JSON.parse(match[0]);
     }
-    
-    return null;
   } catch (error) {
-    console.error('Erro ao extrair metadados:', error);
-    return null;
+    console.error('Erro no fallback de extração:', error);
   }
+
+  return null;
 }
 
 exports.handler = async (event) => {
-  console.log('Evento recebido:', JSON.stringify(event, null, 2));
+  console.log('--- EVENTO RECEBIDO (START) ---');
+  console.log(JSON.stringify(event, null, 2));
   
   // Conexão com PostgreSQL
   const client = new Client({
@@ -53,44 +90,60 @@ exports.handler = async (event) => {
     const bucket = record.s3.bucket.name;
     const key = decodeURIComponent(record.s3.object.key.replace(/\+/g, ' '));
     
-    console.log(`Processando: ${bucket}/${key}`);
+    console.log(`Bucket: ${bucket}`);
+    console.log(`Key: ${key}`);
     
     // Extrair userId e laudoId do path: users/{userId}/laudos/{laudoId}/{filename}
     const pathParts = key.split('/');
+    console.log('Path Parts:', JSON.stringify(pathParts));
+
     if (pathParts.length < 5 || pathParts[0] !== 'users' || pathParts[2] !== 'laudos') {
-      console.log('Path não corresponde ao padrão esperado, ignorando.');
+      console.log('AVISO: Path não corresponde ao padrão esperado, ignorando.');
       return { statusCode: 200, body: 'Ignorado - path não corresponde' };
     }
     
     const usuarioId = pathParts[1];
     const laudoId = pathParts[3];
     
-    console.log(`Usuario: ${usuarioId}, Laudo: ${laudoId}`);
+    console.log(`ID Extraídos -> Usuario: ${usuarioId}, Laudo: ${laudoId}`);
     
     // Baixar imagem do S3
     const getCommand = new GetObjectCommand({ Bucket: bucket, Key: key });
     const response = await s3Client.send(getCommand);
     const imageBuffer = await streamToBuffer(response.Body);
     
-    console.log(`Imagem baixada: ${imageBuffer.length} bytes`);
+    console.log(`Imagem baixada com sucesso. Tamanho: ${imageBuffer.length} bytes`);
     
     // Extrair metadados
     const metadata = extractMetadata(imageBuffer);
-    console.log('Metadados extraídos:', metadata);
+    console.log('RESULTADO EXTRAÇÃO METADADOS:', JSON.stringify(metadata, null, 2));
     
     // Conectar ao banco
     await client.connect();
-    console.log('Conectado ao PostgreSQL');
+    console.log('Conectado ao PostgreSQL com sucesso');
     
     // Verificar se já existe registro para este s3_key
     const checkResult = await client.query(
-      'SELECT id FROM imagens_laudo WHERE s3_key = $1',
+      'SELECT id, laudo_id FROM imagens_laudo WHERE s3_key = $1',
       [key]
     );
     
+    console.log(`Registros encontrados para esta key: ${checkResult.rows.length}`);
+
+    const queryParams = [
+        metadata?.ambiente || null,
+        metadata?.tipo || null,
+        metadata?.categoria || null,
+        metadata?.avaria_local || null,
+        metadata?.descricao || null,
+        metadata?.data_captura ? new Date(metadata.data_captura) : null,
+        key
+    ];
+
     if (checkResult.rows.length > 0) {
+      console.log(`Atualizando registro existente (ID: ${checkResult.rows[0].id})...`);
       // Atualizar registro existente com metadados
-      await client.query(`
+      const updateResult = await client.query(`
         UPDATE imagens_laudo SET
           ambiente = $1,
           tipo = $2,
@@ -99,19 +152,12 @@ exports.handler = async (event) => {
           descricao = $5,
           data_captura = $6
         WHERE s3_key = $7
-      `, [
-        metadata?.ambiente || null,
-        metadata?.tipo || null,
-        metadata?.categoria || null,
-        metadata?.avaria_local || null,
-        metadata?.descricao || null,
-        metadata?.data_captura ? new Date(metadata.data_captura) : null,
-        key
-      ]);
-      console.log('Registro atualizado com metadados');
+      `, queryParams);
+      console.log('UPDATE executado. Rows affected:', updateResult.rowCount);
     } else {
+      console.log('Inserindo NOVO registro...');
       // Inserir novo registro
-      await client.query(`
+      const insertResult = await client.query(`
         INSERT INTO imagens_laudo (
           id, laudo_id, usuario_id, s3_key,
           ambiente, tipo, categoria, avaria_local, descricao, data_captura,
@@ -132,18 +178,23 @@ exports.handler = async (event) => {
         metadata?.descricao || null,
         metadata?.data_captura ? new Date(metadata.data_captura) : null
       ]);
-      console.log('Novo registro inserido');
+      console.log('INSERT executado. Rows affected:', insertResult.rowCount);
     }
     
     return {
       statusCode: 200,
-      body: JSON.stringify({ message: 'Processado com sucesso', key })
+      body: JSON.stringify({ message: 'Processado com sucesso', key, metadata_found: !!metadata })
     };
     
   } catch (error) {
-    console.error('Erro:', error);
+    console.error('ERRO CRÍTICO NO HANDLER:', error);
     throw error;
   } finally {
-    await client.end();
+    try {
+        await client.end();
+        console.log('Conexão com PostgreSQL fechada');
+    } catch (e) {
+        console.error('Erro ao fechar conexão:', e);
+    }
   }
 };

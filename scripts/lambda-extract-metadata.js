@@ -4,6 +4,9 @@ const { Client } = require('pg');
 // Configuração do S3
 const s3Client = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
 
+// Importar parser de EXIF
+const exifParser = require('exif-parser');
+
 // Converte stream para buffer
 async function streamToBuffer(stream) {
   const chunks = [];
@@ -15,23 +18,55 @@ async function streamToBuffer(stream) {
 
 // Extrai metadados EXIF (UserComment contém nossos metadados em JSON)
 function extractMetadata(buffer) {
+  let metadata = null;
+
+  // 1. Tentar extrair via EXIF (Mais robusto para JPEGs)
   try {
-    // Procura pelo marcador EXIF UserComment que contém nosso JSON
-    const bufferStr = buffer.toString('latin1');
+    const parser = exifParser.create(buffer);
+    const result = parser.parse();
     
-    // Procura por padrão de JSON no buffer (ambiente, tipo, categoria, etc.)
+    let userComment = result.tags.UserComment;
+    
+    if (userComment) {
+        // Limpar encoding
+        if (Buffer.isBuffer(userComment)) {
+          userComment = userComment.toString('utf8');
+          userComment = userComment.replace(/^ASCII\0+/, '').replace(/^UNICODE\0+/, '').replace(/\0/g, '');
+        } else if (typeof userComment === 'string') {
+            userComment = userComment.replace(/^ASCII\0+/, '').replace(/^UNICODE\0+/, '').replace(/\0/g, '');
+        }
+
+        // Tentar parsear o JSON
+        const jsonStart = userComment.indexOf('{');
+        const jsonEnd = userComment.lastIndexOf('}');
+        
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+            const jsonStr = userComment.substring(jsonStart, jsonEnd + 1);
+            metadata = JSON.parse(jsonStr);
+        }
+    }
+  } catch (error) {
+     // Ignorar erro de parsing EXIF (pode não ser JPEG) e tentar fallback
+  }
+
+  if (metadata) return metadata;
+
+  // 2. Fallback: Busca via Regex no buffer bruto (Original / Compatibilidade com outros formatos)
+  console.log('Metadados não encontrados via EXIF, tentando fallback via Regex...');
+  try {
+    const bufferStr = buffer.toString('latin1');
     const jsonPattern = /\{"ambiente"[^}]+\}/;
     const match = bufferStr.match(jsonPattern);
     
     if (match) {
+      console.log('Metadados encontrados via fallback Regex.');
       return JSON.parse(match[0]);
     }
-    
-    return null;
   } catch (error) {
-    console.error('Erro ao extrair metadados:', error);
-    return null;
+    console.error('Erro no fallback de extração:', error);
   }
+
+  return null;
 }
 
 exports.handler = async (event) => {

@@ -4,6 +4,7 @@
   "description": "Lambda para extrair metadados EXIF de imagens enviadas ao S3",
   "main": "index.js",
   "dependencies": {
+    "exif-parser": "^0.1.12",
     "pg": "^8.11.3"
   }
 }
