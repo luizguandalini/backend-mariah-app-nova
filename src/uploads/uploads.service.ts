@@ -153,6 +153,7 @@ export class UploadsService {
   /**
    * Confirma que o upload foi concluído e decrementa créditos
    * Chamado pelo app após upload bem-sucedido
+   * Usa UPSERT para evitar duplicatas com a Lambda
    */
   async confirmUpload(userId: string, laudoId: string, s3Key: string): Promise<void> {
     const usuario = await this.usuarioRepository.findOne({
@@ -172,15 +173,36 @@ export class UploadsService {
       await this.usuarioRepository.save(usuario);
     }
 
-    // Criar registro da imagem (metadados serão preenchidos pela Lambda)
-    const imagem = this.imagemLaudoRepository.create({
-      laudoId,
-      usuarioId: userId,
-      s3Key,
-      imagemJaFoiAnalisadaPelaIa: 'nao',
+    // Verificar se já existe registro para este s3_key (criado pela Lambda)
+    const existingImage = await this.imagemLaudoRepository.findOne({
+      where: { s3Key },
     });
 
-    await this.imagemLaudoRepository.save(imagem);
+    if (existingImage) {
+      // Registro já existe (criado pela Lambda), não precisa fazer nada
+      return;
+    }
+
+    // Criar registro da imagem (metadados serão preenchidos pela Lambda)
+    // Usa try/catch para tratar race condition com a Lambda
+    try {
+      const imagem = this.imagemLaudoRepository.create({
+        laudoId,
+        usuarioId: userId,
+        s3Key,
+        imagemJaFoiAnalisadaPelaIa: 'nao',
+      });
+      await this.imagemLaudoRepository.save(imagem);
+    } catch (error) {
+      // Se der erro de constraint UNIQUE, a Lambda já criou o registro
+      // Isso é esperado e não é problema
+      // TypeORM encapsula o erro do driver em driverError
+      const pgErrorCode = error.code || error.driverError?.code;
+      if (pgErrorCode === '23505') { // PostgreSQL unique violation
+        return;
+      }
+      throw error; // Outros erros devem ser propagados
+    }
   }
 
   /**

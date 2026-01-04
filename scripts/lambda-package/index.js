@@ -28,6 +28,8 @@ function extractMetadata(buffer) {
     let userComment = result.tags.UserComment;
     
     if (userComment) {
+        console.log('[EXIF] UserComment encontrado, tipo:', typeof userComment);
+        
         // Limpar encoding
         if (Buffer.isBuffer(userComment)) {
           userComment = userComment.toString('utf8');
@@ -35,6 +37,8 @@ function extractMetadata(buffer) {
         } else if (typeof userComment === 'string') {
             userComment = userComment.replace(/^ASCII\0+/, '').replace(/^UNICODE\0+/, '').replace(/\0/g, '');
         }
+        
+        console.log('[EXIF] UserComment limpo (primeiros 200 chars):', userComment.substring(0, 200));
 
         // Tentar parsear o JSON
         const jsonStart = userComment.indexOf('{');
@@ -42,37 +46,46 @@ function extractMetadata(buffer) {
         
         if (jsonStart !== -1 && jsonEnd !== -1) {
             const jsonStr = userComment.substring(jsonStart, jsonEnd + 1);
+            console.log('[EXIF] JSON extraído:', jsonStr);
             metadata = JSON.parse(jsonStr);
+            console.log('[EXIF] Metadados parseados com sucesso');
         }
+    } else {
+      console.log('[EXIF] UserComment NÃO encontrado nos tags EXIF');
     }
   } catch (error) {
-     // Ignorar erro de parsing EXIF (pode não ser JPEG) e tentar fallback
-     // console.log('EXIF process falhou ou não aplicável:', error.message);
+     console.log('[EXIF] Erro ao processar EXIF:', error.message);
   }
 
   if (metadata) return metadata;
 
-  // 2. Fallback: Busca via Regex no buffer bruto (Original / Compatibilidade com outros formatos)
-  console.log('Metadados não encontrados via EXIF, tentando fallback via Regex...');
+  // 2. Fallback: Busca via Regex no buffer bruto
+  console.log('[FALLBACK] Tentando extrair via Regex no buffer bruto...');
   try {
     const bufferStr = buffer.toString('latin1');
-    const jsonPattern = /\{"ambiente"[^}]+\}/;
+    
+    // Regex melhorado: captura JSON completo com "ambiente" e "data_captura"
+    // Usa [^]* ao invés de .* para capturar newlines também
+    const jsonPattern = /\{"ambiente":"[^"]+","tipo":"[^"]+","categoria":"[^"]+","avaria_local":"[^"]*","descricao":"[^"]+","data_captura":"[^"]+"(?:,"latitude":[^,}]+)?(?:,"longitude":[^}]+)?\}/;
     const match = bufferStr.match(jsonPattern);
     
     if (match) {
-      console.log('Metadados encontrados via fallback Regex.');
+      console.log('[FALLBACK] JSON encontrado via Regex:', match[0]);
       return JSON.parse(match[0]);
+    } else {
+      console.log('[FALLBACK] Nenhum JSON encontrado via Regex');
     }
   } catch (error) {
-    console.error('Erro no fallback de extração:', error);
+    console.error('[FALLBACK] Erro na extração:', error.message);
   }
 
+  console.log('[WARN] Nenhum metadado encontrado na imagem!');
   return null;
 }
 
 exports.handler = async (event) => {
-  console.log('--- EVENTO RECEBIDO (START) ---');
-  console.log(JSON.stringify(event, null, 2));
+  console.log('=== LAMBDA MARIAH METADATA EXTRACTOR ===');
+  console.log('Evento recebido:', JSON.stringify(event, null, 2));
   
   // Conexão com PostgreSQL
   const client = new Client({
@@ -90,111 +103,111 @@ exports.handler = async (event) => {
     const bucket = record.s3.bucket.name;
     const key = decodeURIComponent(record.s3.object.key.replace(/\+/g, ' '));
     
-    console.log(`Bucket: ${bucket}`);
-    console.log(`Key: ${key}`);
+    console.log(`[S3] Bucket: ${bucket}`);
+    console.log(`[S3] Key: ${key}`);
     
     // Extrair userId e laudoId do path: users/{userId}/laudos/{laudoId}/{filename}
     const pathParts = key.split('/');
-    console.log('Path Parts:', JSON.stringify(pathParts));
+    console.log('[S3] Path Parts:', JSON.stringify(pathParts));
 
     if (pathParts.length < 5 || pathParts[0] !== 'users' || pathParts[2] !== 'laudos') {
-      console.log('AVISO: Path não corresponde ao padrão esperado, ignorando.');
+      console.log('[SKIP] Path não corresponde ao padrão esperado');
       return { statusCode: 200, body: 'Ignorado - path não corresponde' };
     }
     
     const usuarioId = pathParts[1];
     const laudoId = pathParts[3];
     
-    console.log(`ID Extraídos -> Usuario: ${usuarioId}, Laudo: ${laudoId}`);
+    console.log(`[IDs] Usuario: ${usuarioId}, Laudo: ${laudoId}`);
     
     // Baixar imagem do S3
     const getCommand = new GetObjectCommand({ Bucket: bucket, Key: key });
     const response = await s3Client.send(getCommand);
     const imageBuffer = await streamToBuffer(response.Body);
     
-    console.log(`Imagem baixada com sucesso. Tamanho: ${imageBuffer.length} bytes`);
+    console.log(`[S3] Imagem baixada: ${imageBuffer.length} bytes`);
     
     // Extrair metadados
     const metadata = extractMetadata(imageBuffer);
-    console.log('RESULTADO EXTRAÇÃO METADADOS:', JSON.stringify(metadata, null, 2));
+    console.log('[METADATA] Resultado:', JSON.stringify(metadata, null, 2));
     
     // Conectar ao banco
     await client.connect();
-    console.log('Conectado ao PostgreSQL com sucesso');
-    
-    // Verificar se já existe registro para este s3_key
-    const checkResult = await client.query(
-      'SELECT id, laudo_id FROM imagens_laudo WHERE s3_key = $1',
-      [key]
-    );
-    
-    console.log(`Registros encontrados para esta key: ${checkResult.rows.length}`);
+    console.log('[DB] Conectado ao PostgreSQL');
 
-    const queryParams = [
-        metadata?.ambiente || null,
-        metadata?.tipo || null,
-        metadata?.categoria || null,
-        metadata?.avaria_local || null,
-        metadata?.descricao || null,
-        metadata?.data_captura ? new Date(metadata.data_captura) : null,
-        key
-    ];
 
-    if (checkResult.rows.length > 0) {
-      console.log(`Atualizando registro existente (ID: ${checkResult.rows[0].id})...`);
-      // Atualizar registro existente com metadados
-      const updateResult = await client.query(`
-        UPDATE imagens_laudo SET
-          ambiente = $1,
-          tipo = $2,
-          categoria = $3,
-          avaria_local = $4,
-          descricao = $5,
-          data_captura = $6
-        WHERE s3_key = $7
-      `, queryParams);
-      console.log('UPDATE executado. Rows affected:', updateResult.rowCount);
-    } else {
-      console.log('Inserindo NOVO registro...');
-      // Inserir novo registro
-      const insertResult = await client.query(`
-        INSERT INTO imagens_laudo (
-          id, laudo_id, usuario_id, s3_key,
-          ambiente, tipo, categoria, avaria_local, descricao, data_captura,
-          imagem_ja_foi_analisada_pela_ia, created_at
-        ) VALUES (
-          gen_random_uuid(), $1, $2, $3,
-          $4, $5, $6, $7, $8, $9,
-          'nao', NOW()
-        )
-      `, [
-        laudoId,
-        usuarioId,
-        key,
-        metadata?.ambiente || null,
-        metadata?.tipo || null,
-        metadata?.categoria || null,
-        metadata?.avaria_local || null,
-        metadata?.descricao || null,
-        metadata?.data_captura ? new Date(metadata.data_captura) : null
-      ]);
-      console.log('INSERT executado. Rows affected:', insertResult.rowCount);
-    }
+    // IMPORTANTE: Usar valores default quando metadata é null ou campos são undefined
+    // REGRA DE NEGÓCIO: NENHUM campo pode ser NULL
+    const ambienteValue = metadata?.ambiente || 'Desconhecido';
+    const tipoValue = metadata?.tipo || 'Desconhecido';
+    const categoriaValue = metadata?.categoria || 'PADRAO';
+    const avariaLocalValue = metadata?.avaria_local ?? '';  // String vazia, não null
+    const descricaoValue = metadata?.descricao || 'Sem descrição';
+    const dataCapturaValue = metadata?.data_captura ? new Date(metadata.data_captura) : new Date();
+    const latitudeValue = metadata?.latitude ?? null;  // GPS pode ser null
+    const longitudeValue = metadata?.longitude ?? null;  // GPS pode ser null
+
+    // UPSERT ATÔMICO: Usa ON CONFLICT para evitar race condition
+    // Se o s3_key já existir, atualiza os metadados. Senão, insere novo.
+    console.log('[DB] Executando UPSERT atômico (INSERT ... ON CONFLICT DO UPDATE)');
     
+    const upsertResult = await client.query(`
+      INSERT INTO imagens_laudo (
+        id, laudo_id, usuario_id, s3_key,
+        ambiente, tipo, categoria, avaria_local, descricao, data_captura,
+        latitude, longitude,
+        imagem_ja_foi_analisada_pela_ia, created_at
+      ) VALUES (
+        gen_random_uuid(), $1, $2, $3,
+        $4, $5, $6, $7, $8, $9,
+        $10, $11,
+        'nao', NOW()
+      )
+      ON CONFLICT (s3_key) DO UPDATE SET
+        ambiente = EXCLUDED.ambiente,
+        tipo = EXCLUDED.tipo,
+        categoria = EXCLUDED.categoria,
+        avaria_local = EXCLUDED.avaria_local,
+        descricao = EXCLUDED.descricao,
+        data_captura = EXCLUDED.data_captura,
+        latitude = EXCLUDED.latitude,
+        longitude = EXCLUDED.longitude
+    `, [
+      laudoId,
+      usuarioId,
+      key,
+      ambienteValue,
+      tipoValue,
+      categoriaValue,
+      avariaLocalValue,
+      descricaoValue,
+      dataCapturaValue,
+      latitudeValue,
+      longitudeValue
+    ]);
+    console.log('[DB] UPSERT executado. Rows:', upsertResult.rowCount);
+    
+    console.log('=== LAMBDA FINALIZADA COM SUCESSO ===');
     return {
       statusCode: 200,
-      body: JSON.stringify({ message: 'Processado com sucesso', key, metadata_found: !!metadata })
+      body: JSON.stringify({ 
+        message: 'Processado com sucesso', 
+        key, 
+        metadata_found: !!metadata,
+        ambiente: ambienteValue,
+        tipo: tipoValue
+      })
     };
     
   } catch (error) {
-    console.error('ERRO CRÍTICO NO HANDLER:', error);
+    console.error('[ERRO CRÍTICO]:', error);
     throw error;
   } finally {
     try {
         await client.end();
-        console.log('Conexão com PostgreSQL fechada');
+        console.log('[DB] Conexão fechada');
     } catch (e) {
-        console.error('Erro ao fechar conexão:', e);
+        console.error('[DB] Erro ao fechar conexão:', e);
     }
   }
 };

@@ -28,7 +28,7 @@ export class ImagemLaudo {
   @Column({ name: 'usuario_id', type: 'uuid' })
   usuarioId: string;
 
-  @Column({ name: 's3_key', type: 'text' })
+  @Column({ name: 's3_key', type: 'text', unique: true })
   s3Key: string;
 
   // Metadados extraídos do EXIF (preenchidos pela Lambda)
