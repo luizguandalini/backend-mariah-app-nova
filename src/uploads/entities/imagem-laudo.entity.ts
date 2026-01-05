@@ -35,6 +35,9 @@ export class ImagemLaudo {
   @Column({ type: 'varchar', length: 255, nullable: true })
   ambiente: string;
 
+  @Column({ name: 'ambiente_comentario', type: 'varchar', length: 1000, nullable: true })
+  ambienteComentario: string;
+
   @Column({ type: 'varchar', length: 100, nullable: true })
   tipo: string;
 

@@ -64,14 +64,23 @@ function extractMetadata(buffer) {
   try {
     const bufferStr = buffer.toString('latin1');
     
-    // Regex melhorado: captura JSON completo com "ambiente", "data_captura" e "ordem"
-    // Usa [^]* ao invés de .* para capturar newlines também
-    const jsonPattern = /\{"ambiente":"[^"]+","tipo":"[^"]+","categoria":"[^"]+","avaria_local":"[^"]*","descricao":"[^"]+","data_captura":"[^"]+"(?:,"latitude":[^,}]+)?(?:,"longitude":[^,}]+)?(?:,"ordem":\d+)?\}/;
-    const match = bufferStr.match(jsonPattern);
+    // Regex melhorado: captura JSON completo com "ambiente", "ambiente_comentario", "data_captura" e "ordem"
+    // Formato novo: {"ambiente":"...","ambiente_comentario":"...","tipo":"...",...}
+    const jsonPatternNew = /\{"ambiente":"[^"]+","ambiente_comentario":"[^"]*","tipo":"[^"]+","categoria":"[^"]+","avaria_local":"[^"]*","descricao":"[^"]+","data_captura":"[^"]+"(?:,"latitude":[^,}]+)?(?:,"longitude":[^,}]+)?(?:,"ordem":\d+)?\}/;
+    const matchNew = bufferStr.match(jsonPatternNew);
     
-    if (match) {
-      console.log('[FALLBACK] JSON encontrado via Regex:', match[0]);
-      return JSON.parse(match[0]);
+    if (matchNew) {
+      console.log('[FALLBACK] JSON encontrado via Regex (formato novo):', matchNew[0]);
+      return JSON.parse(matchNew[0]);
+    }
+    
+    // Fallback para formato antigo (sem ambiente_comentario) - compatibilidade
+    const jsonPatternOld = /\{"ambiente":"[^"]+","tipo":"[^"]+","categoria":"[^"]+","avaria_local":"[^"]*","descricao":"[^"]+","data_captura":"[^"]+"(?:,"latitude":[^,}]+)?(?:,"longitude":[^,}]+)?(?:,"ordem":\d+)?\}/;
+    const matchOld = bufferStr.match(jsonPatternOld);
+    
+    if (matchOld) {
+      console.log('[FALLBACK] JSON encontrado via Regex (formato antigo):', matchOld[0]);
+      return JSON.parse(matchOld[0]);
     } else {
       console.log('[FALLBACK] Nenhum JSON encontrado via Regex');
     }
@@ -137,8 +146,9 @@ exports.handler = async (event) => {
 
 
     // IMPORTANTE: Usar valores default quando metadata é null ou campos são undefined
-    // REGRA DE NEGÓCIO: NENHUM campo pode ser NULL
+    // REGRA DE NEGÓCIO: NENHUM campo pode ser NULL (exceto GPS)
     const ambienteValue = metadata?.ambiente || 'Desconhecido';
+    const ambienteComentarioValue = metadata?.ambiente_comentario ?? '';  // String vazia, não null
     const tipoValue = metadata?.tipo || 'Desconhecido';
     const categoriaValue = metadata?.categoria || 'PADRAO';
     const avariaLocalValue = metadata?.avaria_local ?? '';  // String vazia, não null
@@ -155,17 +165,18 @@ exports.handler = async (event) => {
     const upsertResult = await client.query(`
       INSERT INTO imagens_laudo (
         id, laudo_id, usuario_id, s3_key,
-        ambiente, tipo, categoria, avaria_local, descricao, data_captura,
+        ambiente, ambiente_comentario, tipo, categoria, avaria_local, descricao, data_captura,
         latitude, longitude, ordem,
         imagem_ja_foi_analisada_pela_ia, created_at
       ) VALUES (
         gen_random_uuid(), $1, $2, $3,
-        $4, $5, $6, $7, $8, $9,
-        $10, $11, $12,
+        $4, $5, $6, $7, $8, $9, $10,
+        $11, $12, $13,
         'nao', NOW()
       )
       ON CONFLICT (s3_key) DO UPDATE SET
         ambiente = EXCLUDED.ambiente,
+        ambiente_comentario = EXCLUDED.ambiente_comentario,
         tipo = EXCLUDED.tipo,
         categoria = EXCLUDED.categoria,
         avaria_local = EXCLUDED.avaria_local,
@@ -179,6 +190,7 @@ exports.handler = async (event) => {
       usuarioId,
       key,
       ambienteValue,
+      ambienteComentarioValue,
       tipoValue,
       categoriaValue,
       avariaLocalValue,
