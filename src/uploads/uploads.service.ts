@@ -325,7 +325,19 @@ export class UploadsService {
         const url = await getSignedUrl(this.s3Client, command, {
           expiresIn: 3600,
         }); // 1 hora
-        return { ...img, url };
+        
+        // Retornar apenas os campos necessários para o frontend
+        return {
+          id: img.id,
+          url,
+          ambiente: img.ambiente,
+          tipo: img.tipo,
+          categoria: img.categoria,
+          avariaLocal: img.avariaLocal,
+          descricao: img.descricao,
+          dataCaptura: img.dataCaptura,
+          imagemJaFoiAnalisadaPelaIa: img.imagemJaFoiAnalisadaPelaIa,
+        };
       }),
     );
 
@@ -459,7 +471,19 @@ export class UploadsService {
         const url = await getSignedUrl(this.s3Client, command, {
           expiresIn: 3600,
         });
-        return { ...img, url };
+        
+        // Retornar apenas os campos necessários para o frontend
+        return {
+          id: img.id,
+          url,
+          ambiente: img.ambiente,
+          tipo: img.tipo,
+          categoria: img.categoria,
+          avariaLocal: img.avariaLocal,
+          descricao: img.descricao,
+          dataCaptura: img.dataCaptura,
+          imagemJaFoiAnalisadaPelaIa: img.imagemJaFoiAnalisadaPelaIa,
+        };
       }),
     );
 
