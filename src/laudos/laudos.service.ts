@@ -17,6 +17,8 @@ import { Usuario } from '../users/entities/usuario.entity';
 import { UserRole } from '../users/enums/user-role.enum';
 import { LaudoOption } from '../laudo-details/entities/laudo-option.entity';
 import { LaudoSection } from '../laudo-details/entities/laudo-section.entity';
+import { ImagemLaudo } from '../uploads/entities/imagem-laudo.entity';
+import { ImagensPdfResponseDto, ImagemPdfDto } from './dto/imagens-pdf-response.dto';
 
 import { UploadsService } from '../uploads/uploads.service';
 
@@ -31,9 +33,10 @@ export class LaudosService {
     private readonly optionRepository: Repository<LaudoOption>,
     @InjectRepository(LaudoSection)
     private readonly sectionRepository: Repository<LaudoSection>,
+    @InjectRepository(ImagemLaudo)
+    private readonly imagemRepository: Repository<ImagemLaudo>,
     private readonly uploadsService: UploadsService,
   ) {}
-
 
 
   async remove(id: string, user: any): Promise<void> {
@@ -420,5 +423,127 @@ export class LaudosService {
       createdAt: l.createdAt,
       updatedAt: l.updatedAt,
     }));
+  }
+
+  async getImagensPdfPaginadas(
+    laudoId: string,
+    usuarioId: string,
+    userRole: UserRole,
+    page: number = 1,
+    limit: number = 12,
+  ): Promise<ImagensPdfResponseDto> {
+    // Verificar se o laudo existe e pertence ao usuário
+    const laudo = await this.laudoRepository.findOne({
+      where: { id: laudoId },
+    });
+
+    if (!laudo) {
+      throw new NotFoundException('Laudo não encontrado');
+    }
+
+    // Verificar permissão
+    const isOwner = laudo.usuarioId === usuarioId;
+    const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
+
+    if (!isOwner && !isAdminOrDev) {
+      throw new ForbiddenException(
+        'Você não tem permissão para visualizar as imagens deste laudo',
+      );
+    }
+
+    // Buscar TODAS as imagens ordenadas por ambiente e ordem
+    const todasImagens = await this.imagemRepository.find({
+      where: { laudoId },
+      order: {
+        ambiente: 'ASC',
+        ordem: 'ASC',
+      },
+    });
+
+    if (todasImagens.length === 0) {
+      return {
+        data: [],
+        meta: {
+          currentPage: page,
+          totalPages: 0,
+          totalImages: 0,
+          imagesPerPage: limit,
+        },
+      };
+    }
+
+    // Criar mapa de numeração de ambientes
+    const ambientesMap = new Map<string, { numeroAmbiente: number; contador: number }>();
+    let numeroAmbienteAtual = 0;
+    let ambienteAnterior: string | null = null;
+
+    todasImagens.forEach((img) => {
+      if (img.ambiente !== ambienteAnterior) {
+        numeroAmbienteAtual++;
+        ambientesMap.set(img.ambiente, {
+          numeroAmbiente: numeroAmbienteAtual,
+          contador: 0,
+        });
+        ambienteAnterior = img.ambiente;
+      }
+    });
+
+    // Aplicar paginação
+    const inicio = (page - 1) * limit;
+    const imagensPaginadas = todasImagens.slice(inicio, inicio + limit);
+
+    // Resetar contadores para numeração correta
+    const contadoresPorAmbiente = new Map<string, number>();
+    ambientesMap.forEach((value, key) => {
+      contadoresPorAmbiente.set(key, 0);
+    });
+
+    // Processar todas as imagens até a página atual para contagem correta
+    for (let i = 0; i < inicio + imagensPaginadas.length && i < todasImagens.length; i++) {
+      const img = todasImagens[i];
+      const contadorAtual = contadoresPorAmbiente.get(img.ambiente) || 0;
+      contadoresPorAmbiente.set(img.ambiente, contadorAtual + 1);
+
+      // Só adicionar ao resultado se estiver na página atual
+      if (i >= inicio && i < inicio + limit) {
+        // Processado abaixo
+      }
+    }
+
+    // Mapear imagens com numeração
+    const imagensComNumeracao: ImagemPdfDto[] = imagensPaginadas.map((img, index) => {
+      const infoAmbiente = ambientesMap.get(img.ambiente);
+      
+      // Recontar imagens deste ambiente até esta posição
+      const posDaImagemNoArray = inicio + index;
+      let contadorImagemNoAmbiente = 0;
+      for (let i = 0; i <= posDaImagemNoArray; i++) {
+        if (todasImagens[i].ambiente === img.ambiente) {
+          contadorImagemNoAmbiente++;
+        }
+      }
+
+      return {
+        id: img.id,
+        s3Key: img.s3Key,
+        ambiente: img.ambiente,
+        numeroAmbiente: infoAmbiente?.numeroAmbiente || 0,
+        numeroImagemNoAmbiente: contadorImagemNoAmbiente,
+        legenda: img.legenda || 'sem legenda',
+        ordem: img.ordem,
+        categoria: img.categoria,
+        tipo: img.tipo,
+      };
+    });
+
+    return {
+      data: imagensComNumeracao,
+      meta: {
+        currentPage: page,
+        totalPages: Math.ceil(todasImagens.length / limit),
+        totalImages: todasImagens.length,
+        imagesPerPage: limit,
+      },
+    };
   }
 }

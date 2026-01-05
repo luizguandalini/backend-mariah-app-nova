@@ -13,7 +13,9 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
+import { UpdateConfiguracoesPdfDto } from './dto/update-configuracoes-pdf.dto';
 import { Usuario } from './entities/usuario.entity';
+import { ConfiguracaoPdfUsuario } from './entities/configuracao-pdf-usuario.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -112,5 +114,22 @@ export class UsersController {
   @ApiResponse({ status: 403, description: 'Sem permissão' })
   async remove(@Param('id') id: string): Promise<void> {
     return await this.usersService.remove(id);
+  }
+
+  @Get('configuracoes-pdf')
+  @ApiOperation({ summary: 'Obter configurações de PDF do usuário' })
+  @ApiResponse({ status: 200, description: 'Configurações retornadas com sucesso' })
+  async getConfiguracoesPdf(@CurrentUser() user: any): Promise<ConfiguracaoPdfUsuario> {
+    return await this.usersService.getConfiguracoesPdf(user.id);
+  }
+
+  @Put('configuracoes-pdf')
+  @ApiOperation({ summary: 'Atualizar configurações de PDF do usuário' })
+  @ApiResponse({ status: 200, description: 'Configurações atualizadas com sucesso' })
+  async updateConfiguracoesPdf(
+    @CurrentUser() user: any,
+    @Body() updateDto: UpdateConfiguracoesPdfDto,
+  ): Promise<ConfiguracaoPdfUsuario> {
+    return await this.usersService.updateConfiguracoesPdf(user.id, updateDto);
   }
 }

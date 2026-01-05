@@ -570,4 +570,55 @@ export class UploadsService {
       }),
     );
   }
+
+  /**
+   * Atualiza legenda de uma imagem
+   */
+  async updateLegenda(
+    imagemId: string,
+    legenda: string,
+    userId: string,
+  ): Promise<{ id: string; legenda: string }> {
+    const imagem = await this.imagemLaudoRepository.findOne({
+      where: { id: imagemId },
+      relations: ['laudo'],
+    });
+
+    if (!imagem) {
+      throw new NotFoundException('Imagem não encontrada');
+    }
+
+    // Verificar se a imagem pertence ao usuário
+    if (imagem.laudo.usuarioId !== userId) {
+      throw new ForbiddenException('Você não tem permissão para editar esta imagem');
+    }
+
+    imagem.legenda = legenda;
+    await this.imagemLaudoRepository.save(imagem);
+    
+    // Retornar apenas o essencial
+    return { id: imagem.id, legenda: imagem.legenda };
+  }
+
+  /**
+   * Gera URLs pré-assinadas em batch para visualização
+   */
+  async getSignedUrlsBatch(s3Keys: string[]): Promise<Record<string, string>> {
+    const urls: Record<string, string> = {};
+
+    for (const s3Key of s3Keys) {
+      const command = new GetObjectCommand({
+        Bucket: this.bucketName,
+        Key: s3Key,
+      });
+
+      const signedUrl = await getSignedUrl(this.s3Client, command, {
+        expiresIn: 3600, // 1 hora
+      });
+
+      urls[s3Key] = signedUrl;
+    }
+
+    return urls;
+  }
 }

@@ -3,8 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { Usuario } from './entities/usuario.entity';
+import { ConfiguracaoPdfUsuario } from './entities/configuracao-pdf-usuario.entity';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
+import { UpdateConfiguracoesPdfDto } from './dto/update-configuracoes-pdf.dto';
 import { UserRole } from './enums/user-role.enum';
 
 @Injectable()
@@ -12,6 +14,8 @@ export class UsersService {
   constructor(
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
+    @InjectRepository(ConfiguracaoPdfUsuario)
+    private readonly configuracaoPdfRepository: Repository<ConfiguracaoPdfUsuario>,
   ) {}
 
   async findAll(
@@ -170,5 +174,44 @@ export class UsersService {
 
   async getMe(userId: string): Promise<Usuario> {
     return await this.findOne(userId);
+  }
+
+  async getConfiguracoesPdf(usuarioId: string): Promise<ConfiguracaoPdfUsuario> {
+    let config = await this.configuracaoPdfRepository.findOne({
+      where: { usuarioId },
+    });
+
+    // Se não existir, criar com valores padrão
+    if (!config) {
+      config = this.configuracaoPdfRepository.create({
+        usuarioId,
+        espacamentoHorizontal: 10,
+        espacamentoVertical: 15,
+        margemPagina: 20,
+      });
+      await this.configuracaoPdfRepository.save(config);
+    }
+
+    return config;
+  }
+
+  async updateConfiguracoesPdf(
+    usuarioId: string,
+    updateDto: UpdateConfiguracoesPdfDto,
+  ): Promise<ConfiguracaoPdfUsuario> {
+    let config = await this.configuracaoPdfRepository.findOne({
+      where: { usuarioId },
+    });
+
+    if (!config) {
+      config = this.configuracaoPdfRepository.create({
+        usuarioId,
+        ...updateDto,
+      });
+    } else {
+      Object.assign(config, updateDto);
+    }
+
+    return await this.configuracaoPdfRepository.save(config);
   }
 }

@@ -6,11 +6,12 @@ import { Laudo } from './entities/laudo.entity';
 import { Usuario } from '../users/entities/usuario.entity';
 import { LaudoOption } from '../laudo-details/entities/laudo-option.entity';
 import { LaudoSection } from '../laudo-details/entities/laudo-section.entity';
+import { ImagemLaudo } from '../uploads/entities/imagem-laudo.entity';
 import { UploadsModule } from '../uploads/uploads.module';
 
-@Module({
+@ Module({
   imports: [
-    TypeOrmModule.forFeature([Laudo, Usuario, LaudoOption, LaudoSection]),
+    TypeOrmModule.forFeature([Laudo, Usuario, LaudoOption, LaudoSection, ImagemLaudo]),
     UploadsModule,
   ],
   controllers: [LaudosController],

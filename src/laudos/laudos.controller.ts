@@ -146,4 +146,25 @@ export class LaudosController {
   async remove(@Param('id') id: string, @CurrentUser() user: any): Promise<void> {
     return await this.laudosService.remove(id, user);
   }
+
+  @Get(':id/imagens-pdf')
+  @ApiOperation({ summary: 'Buscar imagens do laudo para PDF com numeração automática' })
+  @ApiParam({ name: 'id', description: 'ID do laudo' })
+  @ApiQuery({ name: 'page', required: false, description: 'Número da página (padrão: 1)' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Imagens por página (padrão: 12)' })
+  @ApiResponse({ status: 200, description: 'Imagens retornadas com sucesso' })
+  async getImagensPdf(
+    @Param('id') id: string,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 12,
+    @CurrentUser() user: any,
+  ) {
+    return await this.laudosService.getImagensPdfPaginadas(
+      id,
+      user.id,
+      user.role,
+      Number(page),
+      Number(limit),
+    );
+  }
 }

@@ -8,10 +8,13 @@ import {
   Request,
   Delete,
   Query,
+  Patch,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UploadsService } from './uploads.service';
 import { CheckLimitDto, PresignedUrlDto } from './dto';
+import { UpdateLegendaDto } from './dto/update-legenda.dto';
+import { SignedUrlsBatchDto } from './dto/signed-urls-batch.dto';
 
 @Controller('uploads')
 @UseGuards(JwtAuthGuard)
@@ -151,5 +154,27 @@ export class UploadsController {
       req.user.role,
     );
     return { success: true };
+  }
+
+  /**
+   * Atualiza legenda de uma imagem
+   * PATCH /uploads/imagem/:id/legenda
+   */
+  @Patch('imagem/:id/legenda')
+  async updateLegenda(
+    @Request() req,
+    @Param('id') imagemId: string,
+    @Body() dto: UpdateLegendaDto,
+  ) {
+    return this.uploadsService.updateLegenda(imagemId, dto.legenda, req.user.id);
+  }
+
+  /**
+   * Gera URLs pré-assinadas em batch para visualização
+   * POST /uploads/signed-urls-batch
+   */
+  @Post('signed-urls-batch')
+  async getSignedUrlsBatch(@Body() dto: SignedUrlsBatchDto) {
+    return this.uploadsService.getSignedUrlsBatch(dto.s3Keys);
   }
 }
