@@ -50,6 +50,9 @@ export class ImagemLaudo {
   @Column({ type: 'text', nullable: true })
   descricao: string;
 
+  @Column({ type: 'varchar', length: 200, default: 'sem legenda' })
+  legenda: string;
+
   @Column({ name: 'data_captura', type: 'timestamptz', nullable: true })
   dataCaptura: Date;
 
