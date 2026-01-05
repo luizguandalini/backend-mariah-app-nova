@@ -64,9 +64,9 @@ function extractMetadata(buffer) {
   try {
     const bufferStr = buffer.toString('latin1');
     
-    // Regex melhorado: captura JSON completo com "ambiente" e "data_captura"
+    // Regex melhorado: captura JSON completo com "ambiente", "data_captura" e "ordem"
     // Usa [^]* ao invés de .* para capturar newlines também
-    const jsonPattern = /\{"ambiente":"[^"]+","tipo":"[^"]+","categoria":"[^"]+","avaria_local":"[^"]*","descricao":"[^"]+","data_captura":"[^"]+"(?:,"latitude":[^,}]+)?(?:,"longitude":[^}]+)?\}/;
+    const jsonPattern = /\{"ambiente":"[^"]+","tipo":"[^"]+","categoria":"[^"]+","avaria_local":"[^"]*","descricao":"[^"]+","data_captura":"[^"]+"(?:,"latitude":[^,}]+)?(?:,"longitude":[^,}]+)?(?:,"ordem":\d+)?\}/;
     const match = bufferStr.match(jsonPattern);
     
     if (match) {
@@ -146,6 +146,7 @@ exports.handler = async (event) => {
     const dataCapturaValue = metadata?.data_captura ? new Date(metadata.data_captura) : new Date();
     const latitudeValue = metadata?.latitude ?? null;  // GPS pode ser null
     const longitudeValue = metadata?.longitude ?? null;  // GPS pode ser null
+    const ordemValue = metadata?.ordem ?? 0;  // Ordem da foto dentro do ambiente
 
     // UPSERT ATÔMICO: Usa ON CONFLICT para evitar race condition
     // Se o s3_key já existir, atualiza os metadados. Senão, insere novo.
@@ -155,12 +156,12 @@ exports.handler = async (event) => {
       INSERT INTO imagens_laudo (
         id, laudo_id, usuario_id, s3_key,
         ambiente, tipo, categoria, avaria_local, descricao, data_captura,
-        latitude, longitude,
+        latitude, longitude, ordem,
         imagem_ja_foi_analisada_pela_ia, created_at
       ) VALUES (
         gen_random_uuid(), $1, $2, $3,
         $4, $5, $6, $7, $8, $9,
-        $10, $11,
+        $10, $11, $12,
         'nao', NOW()
       )
       ON CONFLICT (s3_key) DO UPDATE SET
@@ -171,7 +172,8 @@ exports.handler = async (event) => {
         descricao = EXCLUDED.descricao,
         data_captura = EXCLUDED.data_captura,
         latitude = EXCLUDED.latitude,
-        longitude = EXCLUDED.longitude
+        longitude = EXCLUDED.longitude,
+        ordem = EXCLUDED.ordem
     `, [
       laudoId,
       usuarioId,
@@ -183,7 +185,8 @@ exports.handler = async (event) => {
       descricaoValue,
       dataCapturaValue,
       latitudeValue,
-      longitudeValue
+      longitudeValue,
+      ordemValue
     ]);
     console.log('[DB] UPSERT executado. Rows:', upsertResult.rowCount);
     

@@ -65,6 +65,9 @@ export class ImagemLaudo {
   })
   imagemJaFoiAnalisadaPelaIa: string;
 
+  @Column({ type: 'integer', default: 0 })
+  ordem: number;
+
   @CreateDateColumn({
     name: 'created_at',
     type: 'timestamptz',

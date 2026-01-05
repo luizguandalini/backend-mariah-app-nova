@@ -227,7 +227,7 @@ export class UploadsService {
 
     return this.imagemLaudoRepository.find({
       where: { laudoId },
-      order: { createdAt: 'ASC' },
+      order: { ordem: 'ASC', createdAt: 'ASC' },
     });
   }
 
@@ -310,7 +310,7 @@ export class UploadsService {
 
     const [imagens, total] = await this.imagemLaudoRepository.findAndCount({
       where: { laudoId },
-      order: { createdAt: 'DESC' },
+      order: { ordem: 'ASC', createdAt: 'ASC' },
       skip: (page - 1) * limit,
       take: limit,
     });
@@ -337,6 +337,7 @@ export class UploadsService {
           descricao: img.descricao,
           dataCaptura: img.dataCaptura,
           imagemJaFoiAnalisadaPelaIa: img.imagemJaFoiAnalisadaPelaIa,
+          ordem: img.ordem,
         };
       }),
     );
@@ -456,7 +457,7 @@ export class UploadsService {
 
     const [imagens, total] = await this.imagemLaudoRepository.findAndCount({
       where: { laudoId, ambiente },
-      order: { createdAt: 'DESC' },
+      order: { ordem: 'ASC', createdAt: 'ASC' },
       skip: (page - 1) * limit,
       take: limit,
     });
@@ -483,6 +484,7 @@ export class UploadsService {
           descricao: img.descricao,
           dataCaptura: img.dataCaptura,
           imagemJaFoiAnalisadaPelaIa: img.imagemJaFoiAnalisadaPelaIa,
+          ordem: img.ordem,
         };
       }),
     );
