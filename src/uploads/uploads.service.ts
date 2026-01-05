@@ -338,6 +338,140 @@ export class UploadsService {
   }
 
   /**
+   * Retorna lista de ambientes distintos de um laudo com contagem de imagens
+   * Ordenado pelo prefixo numérico (ex: "1 - Cozinha", "2 - Sala")
+   */
+  async getAmbientesByLaudo(
+    userId: string,
+    laudoId: string,
+    page: number = 1,
+    limit: number = 10,
+    userRole: UserRole,
+  ): Promise<{ data: { ambiente: string; totalImagens: number; ordem: number }[]; total: number; page: number; lastPage: number }> {
+    const laudo = await this.laudoRepository.findOne({
+      where: { id: laudoId },
+    });
+
+    if (!laudo) {
+      throw new NotFoundException('Laudo não encontrado');
+    }
+
+    // Verificar permissão
+    const isOwner = laudo.usuarioId === userId;
+    const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
+
+    if (!isOwner && !isAdminOrDev) {
+      throw new ForbiddenException(
+        'Você não tem permissão para ver os ambientes deste laudo',
+      );
+    }
+
+    // Query para obter ambientes distintos com contagem
+    const queryBuilder = this.imagemLaudoRepository
+      .createQueryBuilder('img')
+      .select('img.ambiente', 'ambiente')
+      .addSelect('COUNT(*)', 'totalImagens')
+      .where('img.laudo_id = :laudoId', { laudoId })
+      .andWhere('img.ambiente IS NOT NULL')
+      .andWhere("img.ambiente != ''")
+      .groupBy('img.ambiente');
+
+    // Obter total de ambientes distintos
+    const totalQuery = await this.imagemLaudoRepository
+      .createQueryBuilder('img')
+      .select('COUNT(DISTINCT img.ambiente)', 'count')
+      .where('img.laudo_id = :laudoId', { laudoId })
+      .andWhere('img.ambiente IS NOT NULL')
+      .andWhere("img.ambiente != ''")
+      .getRawOne();
+    
+    const total = parseInt(totalQuery?.count || '0', 10);
+
+    // Adicionar ordenação pelo prefixo numérico e paginação
+    const ambientesRaw = await queryBuilder
+      .orderBy("CAST(NULLIF(SPLIT_PART(img.ambiente, ' - ', 1), '') AS INTEGER)", 'ASC', 'NULLS LAST')
+      .offset((page - 1) * limit)
+      .limit(limit)
+      .getRawMany();
+
+    // Mapear resultado com ordem extraída
+    const data = ambientesRaw.map((row) => {
+      const match = row.ambiente?.match(/^(\d+)/);
+      const ordem = match ? parseInt(match[1], 10) : 999;
+      return {
+        ambiente: row.ambiente,
+        totalImagens: parseInt(row.totalImagens, 10),
+        ordem,
+      };
+    });
+
+    return {
+      data,
+      total,
+      page,
+      lastPage: Math.ceil(total / limit) || 1,
+    };
+  }
+
+  /**
+   * Retorna imagens de um ambiente específico de forma paginada
+   */
+  async getImagensByAmbiente(
+    userId: string,
+    laudoId: string,
+    ambiente: string,
+    page: number = 1,
+    limit: number = 20,
+    userRole: UserRole,
+  ): Promise<{ data: any[]; total: number; page: number; lastPage: number }> {
+    const laudo = await this.laudoRepository.findOne({
+      where: { id: laudoId },
+    });
+
+    if (!laudo) {
+      throw new NotFoundException('Laudo não encontrado');
+    }
+
+    // Verificar permissão
+    const isOwner = laudo.usuarioId === userId;
+    const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
+
+    if (!isOwner && !isAdminOrDev) {
+      throw new ForbiddenException(
+        'Você não tem permissão para ver as imagens deste laudo',
+      );
+    }
+
+    const [imagens, total] = await this.imagemLaudoRepository.findAndCount({
+      where: { laudoId, ambiente },
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    // Gerar URLs pré-assinadas para visualização
+    const data = await Promise.all(
+      imagens.map(async (img) => {
+        const command = new GetObjectCommand({
+          Bucket: this.bucketName,
+          Key: img.s3Key,
+        });
+        const url = await getSignedUrl(this.s3Client, command, {
+          expiresIn: 3600,
+        });
+        return { ...img, url };
+      }),
+    );
+
+    return {
+      data,
+      total,
+      page,
+      lastPage: Math.ceil(total / limit) || 1,
+    };
+  }
+
+  /**
    * Deleta uma imagem do S3 e do banco de dados
    */
   async deleteImagem(

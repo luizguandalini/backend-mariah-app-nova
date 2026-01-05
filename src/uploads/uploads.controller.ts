@@ -98,6 +98,48 @@ export class UploadsController {
   }
 
   /**
+   * Lista ambientes distintos de um laudo com contagem de imagens
+   * GET /uploads/laudo/:laudoId/ambientes?page=1&limit=10
+   */
+  @Get('laudo/:laudoId/ambientes')
+  async getAmbientesByLaudo(
+    @Request() req,
+    @Param('laudoId') laudoId: string,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 10,
+  ) {
+    return this.uploadsService.getAmbientesByLaudo(
+      req.user.id,
+      laudoId,
+      Number(page),
+      Number(limit),
+      req.user.role,
+    );
+  }
+
+  /**
+   * Lista imagens de um ambiente específico de forma paginada
+   * GET /uploads/laudo/:laudoId/ambiente/:ambiente/imagens?page=1&limit=20
+   */
+  @Get('laudo/:laudoId/ambiente/:ambiente/imagens')
+  async getImagensByAmbiente(
+    @Request() req,
+    @Param('laudoId') laudoId: string,
+    @Param('ambiente') ambiente: string,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 20,
+  ) {
+    return this.uploadsService.getImagensByAmbiente(
+      req.user.id,
+      laudoId,
+      decodeURIComponent(ambiente),
+      Number(page),
+      Number(limit),
+      req.user.role,
+    );
+  }
+
+  /**
    * Deleta uma imagem
    * DELETE /uploads/imagem/:id
    */
