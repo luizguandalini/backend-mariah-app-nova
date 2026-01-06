@@ -50,11 +50,42 @@ export class LaudosService {
       throw new UnauthorizedException('Você não tem permissão para deletar este laudo');
     }
 
-    // 1. Deletar imagens do S3 primeiro
-    await this.uploadsService.deleteImagensByLaudo(id);
+    await this.laudoRepository.manager.transaction(async (transactionalEntityManager) => {
+      // 1. Calcular quantos créditos devolver (imagens não analisadas)
+      // Apenas devolve se não for ADMIN/DEV (pois eles têm ilimitado)
+      if (![UserRole.DEV, UserRole.ADMIN].includes(user.role)) {
+         const refundableImagesCount = await this.imagemRepository.count({
+          where: { 
+            laudoId: id,
+            imagemJaFoiAnalisadaPelaIa: 'nao'
+          }
+        });
 
-    // 2. O remove do laudo irá disparar o CASCADE para as imagens no banco
-    await this.laudoRepository.remove(laudo);
+        if (refundableImagesCount > 0) {
+          const usuario = await transactionalEntityManager.findOne(Usuario, {
+            where: { id: laudo.usuario.id },
+            lock: { mode: 'pessimistic_write' },
+          });
+
+          if (usuario) {
+            usuario.quantidadeImagens += refundableImagesCount;
+            await transactionalEntityManager.save(usuario);
+          }
+        }
+      }
+
+      // 2. Deletar imagens do S3 primeiro (operação async fora do banco)
+      // Nota: Idealmente faríamos isso fora da transaction do banco se quiséssemos atomicidade rigorosa do banco vs falha S3,
+      // mas aqui queremos garantir que o banco só muda se tudo correr "bem" ou pelo menos iniciarmos o processo.
+      // Como o delete do S3 não é transacional com o banco, se falhar o S3, o banco pode rollbackar ou não dependendo de onde colocarmos.
+      // O requisito diz "solução robusta". 
+      // Se colocarmos o S3 delete ANTES do remove do banco mas DENTRO da transaction function, se o S3 der erro (throw), a transaction do banco nem commita.
+      // Porém, o S3 delete pode demorar. Vamos manter a chamada await aqui.
+      await this.uploadsService.deleteImagensByLaudo(id);
+
+      // 3. Remover o laudo (CASCADE irá remover as imagens do banco)
+      await transactionalEntityManager.remove(laudo);
+    });
   }
 
   async getLaudoDetalhes(id: string) {

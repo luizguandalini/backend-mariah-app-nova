@@ -7,7 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, DeleteObjectsCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { ImagemLaudo } from './entities/imagem-laudo.entity';
 import { Usuario } from '../users/entities/usuario.entity';
@@ -503,6 +503,7 @@ export class UploadsService {
 
   /**
    * Deleta uma imagem do S3 e do banco de dados
+   * Se a imagem não foi analisada pela IA, devolve o crédito ao usuário
    */
   async deleteImagem(
     userId: string,
@@ -528,7 +529,31 @@ export class UploadsService {
       );
     }
 
-    // Deletar do S3
+    // Iniciar transação para garantir consistência
+    await this.imagemLaudoRepository.manager.transaction(
+      async (transactionalEntityManager) => {
+        // 1. Verificar se deve devolver crédito
+        if (
+          imagem.imagemJaFoiAnalisadaPelaIa === 'nao' &&
+          ![UserRole.DEV, UserRole.ADMIN].includes(userRole)
+        ) {
+          const usuario = await transactionalEntityManager.findOne(Usuario, {
+            where: { id: imagem.usuarioId },
+            lock: { mode: 'pessimistic_write' },
+          });
+
+          if (usuario) {
+            usuario.quantidadeImagens += 1;
+            await transactionalEntityManager.save(usuario);
+          }
+        }
+
+        // 2. Deletar do banco
+        await transactionalEntityManager.remove(imagem);
+      },
+    );
+
+    // 3. Deletar do S3 (fora da transação do banco)
     try {
       const command = new DeleteObjectCommand({
         Bucket: this.bucketName,
@@ -537,16 +562,13 @@ export class UploadsService {
       await this.s3Client.send(command);
     } catch (error) {
       console.error('Erro ao deletar imagem do S3:', error);
-      // Continua para deletar do banco mesmo se falhar no S3 (para manter consistência)
+      // Não lançar erro aqui para não falhar a request, já que o banco já foi atualizado
     }
-
-    // Deletar do banco
-    await this.imagemLaudoRepository.remove(imagem);
   }
 
   /**
-   * Deleta todas as imagens de um laudo do S3
-   * Nota: Não deleta do banco, pois o CASCADE no Laudo fará isso
+   * Deleta todas as imagens de um laudo do S3 em Batch
+   * Nota: Não deleta do banco, pois o chamador deve lidar com isso (ex: onDelete: CASCADE ou lógica customizada)
    */
   async deleteImagensByLaudo(laudoId: string): Promise<void> {
     const imagens = await this.imagemLaudoRepository.find({
@@ -558,21 +580,26 @@ export class UploadsService {
       return;
     }
 
-    // Deletar em paralelo no S3
-    await Promise.all(
-      imagens.map(async (img) => {
-        try {
-          const command = new DeleteObjectCommand({
-            Bucket: this.bucketName,
-            Key: img.s3Key,
-          });
-          await this.s3Client.send(command);
-        } catch (error) {
-          console.error(`Erro ao deletar imagem S3 (${img.s3Key}):`, error);
-          // Continua para tentar deletar as outras
-        }
-      }),
-    );
+    // Agrupar em chunks de 1000 (limite do S3 deleteObjects)
+    const chunkSize = 1000;
+    for (let i = 0; i < imagens.length; i += chunkSize) {
+      const chunk = imagens.slice(i, i + chunkSize);
+      
+      const objectsToDelete = chunk.map(img => ({ Key: img.s3Key }));
+
+      try {
+        const command = new DeleteObjectsCommand({
+          Bucket: this.bucketName,
+          Delete: {
+            Objects: objectsToDelete,
+            Quiet: true, // Retorna apenas erros
+          },
+        });
+        await this.s3Client.send(command);
+      } catch (error) {
+        console.error(`Erro ao deletar batch de imagens S3 (chunk ${i}):`, error);
+      }
+    }
   }
 
   /**
