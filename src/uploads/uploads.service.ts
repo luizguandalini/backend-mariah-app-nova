@@ -564,6 +564,37 @@ export class UploadsService {
       console.error('Erro ao deletar imagem do S3:', error);
       // Não lançar erro aqui para não falhar a request, já que o banco já foi atualizado
     }
+
+    // 4. Recalcular contadores do Laudo (Fotos e Ambientes) para manter sincronizado com o App
+    try {
+      const laudoId = imagem.laudoId;
+
+      // Contar total de fotos restantes
+      const totalFotos = await this.imagemLaudoRepository.count({
+        where: { laudoId },
+      });
+
+      // Contar total de ambientes distintos restantes
+      const totalAmbientesQuery = await this.imagemLaudoRepository
+        .createQueryBuilder('img')
+        .select('COUNT(DISTINCT img.ambiente)', 'count')
+        .where('img.laudo_id = :laudoId', { laudoId })
+        .andWhere('img.ambiente IS NOT NULL')
+        .andWhere("img.ambiente != ''")
+        .getRawOne();
+      
+      const totalAmbientes = parseInt(totalAmbientesQuery?.count || '0', 10);
+
+      // Atualizar no Laudo
+      await this.laudoRepository.update(laudoId, {
+        totalFotos,
+        totalAmbientes,
+      });
+
+    } catch (error) {
+      console.error('Erro ao atualizar estatísticas do laudo após deleção:', error);
+      // Não falhar a request principal, é um efeito colateral
+    }
   }
 
   /**
