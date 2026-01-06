@@ -156,22 +156,26 @@ export class UploadsService {
    * Usa UPSERT para evitar duplicatas com a Lambda
    */
   async confirmUpload(userId: string, laudoId: string, s3Key: string): Promise<void> {
-    const usuario = await this.usuarioRepository.findOne({
-      where: { id: userId },
-    });
+    // Usar transação para garantir atomicidade e evitar race condition na dedução de créditos
+    await this.usuarioRepository.manager.transaction(async (transactionalEntityManager) => {
+      const usuario = await transactionalEntityManager.findOne(Usuario, {
+        where: { id: userId },
+        lock: { mode: 'pessimistic_write' }, // Trava a linha para evitar leituras simultâneas (race condition)
+      });
 
-    if (!usuario) {
-      throw new NotFoundException('Usuário não encontrado');
-    }
-
-    // Decrementar créditos (apenas para usuários normais)
-    if (![UserRole.DEV, UserRole.ADMIN].includes(usuario.role)) {
-      if (usuario.quantidadeImagens <= 0) {
-        throw new BadRequestException('Limite de imagens esgotado');
+      if (!usuario) {
+        throw new NotFoundException('Usuário não encontrado');
       }
-      usuario.quantidadeImagens -= 1;
-      await this.usuarioRepository.save(usuario);
-    }
+
+      // Decrementar créditos (apenas para usuários normais)
+      if (![UserRole.DEV, UserRole.ADMIN].includes(usuario.role)) {
+        if (usuario.quantidadeImagens <= 0) {
+          throw new BadRequestException('Limite de imagens esgotado');
+        }
+        usuario.quantidadeImagens -= 1;
+        await transactionalEntityManager.save(usuario);
+      }
+    });
 
     // Verificar se já existe registro para este s3_key (criado pela Lambda)
     const existingImage = await this.imagemLaudoRepository.findOne({
