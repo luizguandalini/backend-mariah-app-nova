@@ -169,13 +169,22 @@ export class AmbientesService {
   /**
    * Buscar todos os ambientes com seus itens PAI para sincronização (app mobile)
    * Retorna estrutura consolidada para cache local no dispositivo
+   * 
+   * OTIMIZADO: Usa LEFT JOIN para buscar todos os dados em uma única query,
+   * evitando o problema N+1 que causava timeout no app mobile
+   * 
+   * IMPORTANTE: Cada ambiente é retornado individualmente pelo seu nome.
+   * Quando faz parte de um grupo, os itens são consolidados de todos os ambientes do grupo.
    */
   async getTodosComItens(): Promise<any> {
-    // Buscar todos os ambientes ativos
-    const todosAmbientes = await this.ambienteRepository.find({
-      where: { ativo: true },
-      order: { nome: 'ASC' },
-    });
+    // Buscar todos os ambientes ativos COM seus itens em uma única query
+    const todosAmbientes = await this.ambienteRepository
+      .createQueryBuilder('ambiente')
+      .leftJoinAndSelect('ambiente.itens', 'item', 'item.ativo = :itemAtivo AND item.parentId IS NULL', { itemAtivo: true })
+      .where('ambiente.ativo = :ativo', { ativo: true })
+      .orderBy('ambiente.nome', 'ASC')
+      .addOrderBy('item.ordem', 'ASC')
+      .getMany();
 
     if (todosAmbientes.length === 0) {
       return {
@@ -184,56 +193,66 @@ export class AmbientesService {
       };
     }
 
-    // Mapear ambientes únicos por nome (consolidando grupos)
+    // Pré-processar: criar mapa de grupoId -> itens consolidados
+    const itensConsolidadosPorGrupo = new Map<string, any[]>();
+    
+    // Para cada grupo, consolida todos os itens de todos os ambientes do grupo
+    for (const ambiente of todosAmbientes) {
+      if (ambiente.grupoId) {
+        if (!itensConsolidadosPorGrupo.has(ambiente.grupoId)) {
+          // Buscar todos os ambientes do grupo e consolidar itens
+          const ambientesDoGrupo = todosAmbientes.filter(a => a.grupoId === ambiente.grupoId);
+          const itensMap = new Map<string, any>();
+          
+          for (const ambGrupo of ambientesDoGrupo) {
+            const itensPai = ambGrupo.itens || [];
+            for (const item of itensPai) {
+              if (!itensMap.has(item.nome)) {
+                itensMap.set(item.nome, {
+                  id: item.id,
+                  nome: item.nome,
+                  descricao: item.descricao,
+                  ordem: item.ordem,
+                });
+              }
+            }
+          }
+          
+          const itensUnicos = Array.from(itensMap.values()).sort((a, b) => a.ordem - b.ordem);
+          itensConsolidadosPorGrupo.set(ambiente.grupoId, itensUnicos);
+        }
+      }
+    }
+
+    // Mapear TODOS os ambientes por nome (cada um individualmente)
     const ambientesMap = new Map<string, any>();
 
     for (const ambiente of todosAmbientes) {
-      // Se já processamos este nome, pular (já consolidou itens do grupo)
+      // Pular se já processamos este nome
       if (ambientesMap.has(ambiente.nome)) {
         continue;
       }
 
-      // Buscar ambientes relacionados (mesmo nome ou mesmo grupo)
-      let ambientesRelacionados = [ambiente];
+      let itensFinais: any[];
+      
       if (ambiente.grupoId) {
-        ambientesRelacionados = todosAmbientes.filter(
-          (a) => a.grupoId === ambiente.grupoId
-        );
+        // Se faz parte de um grupo, usa itens consolidados do grupo
+        itensFinais = itensConsolidadosPorGrupo.get(ambiente.grupoId) || [];
+      } else {
+        // Ambiente individual - usa seus próprios itens
+        const itensPai = ambiente.itens || [];
+        itensFinais = itensPai.map(item => ({
+          id: item.id,
+          nome: item.nome,
+          descricao: item.descricao,
+          ordem: item.ordem,
+        })).sort((a, b) => a.ordem - b.ordem);
       }
-
-      // Consolidar itens PAI de todos os ambientes relacionados
-      const itensMap = new Map<string, any>();
-
-      for (const ambRel of ambientesRelacionados) {
-        const itens = await this.itensAmbienteService.findAllByAmbiente(
-          ambRel.id
-        );
-
-        // Filtrar apenas itens PAI (parentId = null) e ativos
-        const itensPai = itens.filter((item) => !item.parentId && item.ativo);
-
-        // Consolidar itens únicos por nome
-        for (const item of itensPai) {
-          if (!itensMap.has(item.nome)) {
-            itensMap.set(item.nome, {
-              id: item.id,
-              nome: item.nome,
-              descricao: item.descricao,
-              ordem: item.ordem,
-            });
-          }
-        }
-      }
-
-      // Converter Map para array e ordenar por ordem
-      const itensUnicos = Array.from(itensMap.values()).sort(
-        (a, b) => a.ordem - b.ordem
-      );
 
       // Adicionar ao mapa de ambientes
       ambientesMap.set(ambiente.nome, {
         nome: ambiente.nome,
-        itens: itensUnicos,
+        itens: itensFinais,
       });
     }
 
