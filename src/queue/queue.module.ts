@@ -12,6 +12,7 @@ import { OpenAIModule } from '../openai/openai.module';
 import { RabbitMQService } from './rabbitmq.service';
 import { UploadsModule } from '../uploads/uploads.module';
 import { QueueGateway } from './queue.gateway';
+import { LaudosModule } from '../laudos/laudos.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { QueueGateway } from './queue.gateway';
     ]),
     OpenAIModule,
     UploadsModule,
+    LaudosModule,
   ],
   controllers: [QueueController],
   providers: [QueueService, RabbitMQService, QueueGateway],

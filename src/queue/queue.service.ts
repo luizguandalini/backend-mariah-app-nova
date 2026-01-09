@@ -9,7 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, MoreThan, IsNull, Not } from 'typeorm';
 import { AnalysisQueue, AnalysisStatus } from './entities/analysis-queue.entity';
 import { ImagemLaudo } from '../uploads/entities/imagem-laudo.entity';
-import { Laudo } from '../laudos/entities/laudo.entity';
+import { Laudo, StatusLaudo } from '../laudos/entities/laudo.entity';
 import { OpenAIService } from '../openai/openai.service';
 import { Ambiente } from '../ambientes/entities/ambiente.entity';
 import { ItemAmbiente } from '../ambientes/entities/item-ambiente.entity';
@@ -77,6 +77,39 @@ export class QueueService implements OnModuleInit {
     // Recalcular posições ao iniciar
     await this.recalculatePositions();
 
+    // Recuperar itens travados (zumbis de restart)
+    // Verificar itens PENDING ou PROCESSING que já terminaram (processedImages >= totalImages)
+    const allActiveItems = await this.queueRepository.find({
+        where: [
+          { status: AnalysisStatus.PROCESSING },
+          { status: AnalysisStatus.PENDING },
+        ]
+    });
+    
+    if (allActiveItems.length > 0) {
+        for (const item of allActiveItems) {
+            // Se já processou tudo, marcar como COMPLETED
+            if (item.processedImages >= item.totalImages && item.totalImages > 0) {
+                this.logger.log(`Item ${item.laudoId} já está 100% processado (${item.processedImages}/${item.totalImages}). Marcando como COMPLETED.`);
+                item.status = AnalysisStatus.COMPLETED;
+                item.completedAt = new Date();
+                item.position = null;
+                await this.queueRepository.save(item);
+                
+                // Atualizar o Laudo também
+                await this.laudoRepository.update(item.laudoId, { status: StatusLaudo.CONCLUIDO });
+            } 
+            // Se estava PROCESSING mas não terminou, volta para PENDING
+            else if (item.status === AnalysisStatus.PROCESSING) {
+                this.logger.warn(`Item ${item.laudoId} travado em PROCESSING (${item.processedImages}/${item.totalImages}). Retornando para PENDING.`);
+                item.status = AnalysisStatus.PENDING;
+                await this.queueRepository.save(item);
+            }
+        }
+        // Recalcular posições
+        await this.recalculatePositions();
+    }
+
     // Se RabbitMQ está conectado, usar consumer. Senão, fallback para polling
     if (this.rabbitMQService.isConnected()) {
       // Iniciar consumer RabbitMQ
@@ -129,7 +162,7 @@ export class QueueService implements OnModuleInit {
 
     if (totalImages === 0) {
       // Auto- correção: Se não tem imagens pendentes, marca como concluído
-      await this.laudoRepository.update(laudoId, { status: AnalysisStatus.COMPLETED as any }); // Cast necessário pois o enum pode ser diferente no LaudoEntity vs QueueEntity, mas os strings batem
+      await this.laudoRepository.update(laudoId, { status: StatusLaudo.CONCLUIDO });
       throw new BadRequestException('Laudo já possui todas as imagens analisadas');
     }
 
@@ -305,10 +338,12 @@ export class QueueService implements OnModuleInit {
       return;
     }
 
-    // Processar todas as imagens do laudo
     queueItem.status = AnalysisStatus.PROCESSING;
     queueItem.startedAt = new Date();
     await this.queueRepository.save(queueItem);
+    
+    // Atualizar status do LAUDO para PROCESSANDO
+    await this.laudoRepository.update(laudoId, { status: StatusLaudo.PROCESSANDO });
     
     this.queueGateway.notifyStatusChange(laudoId, AnalysisStatus.PROCESSING);
 
@@ -324,12 +359,12 @@ export class QueueService implements OnModuleInit {
         });
 
         if (!nextImage) {
-          // Laudo concluído
-          queueItem.status = AnalysisStatus.COMPLETED;
-          queueItem.completedAt = new Date();
-          queueItem.position = null;
           await this.queueRepository.save(queueItem);
           await this.recalculatePositions();
+
+          // Atualizar status do LAUDO para CONCLUIDO
+          await this.laudoRepository.update(laudoId, { status: StatusLaudo.CONCLUIDO });
+
           this.logger.log(`Laudo ${laudoId} análise concluída!`);
           this.queueGateway.notifyStatusChange(laudoId, AnalysisStatus.COMPLETED);
           return;
@@ -409,6 +444,10 @@ export class QueueService implements OnModuleInit {
         currentItem.status = AnalysisStatus.PROCESSING;
         currentItem.startedAt = new Date();
         await this.queueRepository.save(currentItem);
+        
+        // Atualizar status do LAUDO para PROCESSANDO
+        await this.laudoRepository.update(currentItem.laudoId, { status: StatusLaudo.PROCESSANDO });
+        
         this.queueGateway.notifyStatusChange(currentItem.laudoId, AnalysisStatus.PROCESSING);
       }
 
@@ -422,16 +461,35 @@ export class QueueService implements OnModuleInit {
       });
 
       if (!nextImage) {
-        // Laudo concluído
+        // Laudo concluído (Se caiu aqui, é porque já acabou tudo, mesmo que tenha acabado de reiniciar)
         currentItem.status = AnalysisStatus.COMPLETED;
         currentItem.completedAt = new Date();
         currentItem.position = null;
+        
+        // Garantir que processados = total para coerência visual
+        currentItem.processedImages = currentItem.processedImages < currentItem.totalImages ? currentItem.totalImages : currentItem.processedImages;
+
         await this.queueRepository.save(currentItem);
         await this.recalculatePositions();
-        await this.recalculatePositions();
+        
+        // Atualizar status do LAUDO para CONCLUIDO
+        await this.laudoRepository.update(currentItem.laudoId, { status: StatusLaudo.CONCLUIDO });
+
         this.logger.log(`Laudo ${currentItem.laudoId} análise concluída!`);
         this.queueGateway.notifyStatusChange(currentItem.laudoId, AnalysisStatus.COMPLETED);
+         
+         // Enviar progresso 100% final
+        this.queueGateway.notifyProgress(currentItem.laudoId, {
+            laudoId: currentItem.laudoId,
+            processedImages: currentItem.totalImages,
+            totalImages: currentItem.totalImages,
+            percentage: 100,
+        });
+
         this.isProcessing = false;
+        
+        // Se tinha acabado, verifique se temos mais coisa na fila imediatamente
+        setTimeout(() => this.processNextInQueue(), 1000);
         return;
       }
 
@@ -453,6 +511,9 @@ export class QueueService implements OnModuleInit {
            totalImages: currentItem.totalImages,
            percentage,
        });
+
+       // Trigger next image processing immediately (chaining)
+       setTimeout(() => this.processNextInQueue(), 1000);
 
     } catch (error) {
       this.logger.error(`Erro ao processar fila: ${error.message}`);

@@ -6,7 +6,10 @@ import {
   Param,
   UseGuards,
   Request,
+  ForbiddenException,
+  NotFoundException,
 } from '@nestjs/common';
+import { LaudosService } from '../laudos/laudos.service';
 import { QueueService } from './queue.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -16,14 +19,32 @@ import { UserRole } from '../users/enums/user-role.enum';
 @Controller('queue')
 @UseGuards(JwtAuthGuard)
 export class QueueController {
-  constructor(private readonly queueService: QueueService) {}
+  constructor(
+    private readonly queueService: QueueService,
+    private readonly laudosService: LaudosService,
+  ) {}
 
   /**
    * Adiciona um laudo à fila de análise
    */
   @Post('analisar-laudo/:laudoId')
   async addToQueue(@Param('laudoId') laudoId: string, @Request() req: any) {
-    const queueItem = await this.queueService.addToQueue(laudoId, req.user.id);
+    // Buscar laudo para verificar permissão
+    const laudo = await this.laudosService.findOne(laudoId);
+    if (!laudo) {
+      throw new NotFoundException('Laudo não encontrado');
+    }
+
+    const isAdmin = req.user.role === UserRole.ADMIN || req.user.role === UserRole.DEV;
+
+    // Se não for admin, verificar se é o dono
+    if (!isAdmin && laudo.usuarioId !== req.user.id) {
+      throw new ForbiddenException('Você não tem permissão para iniciar análise deste laudo');
+    }
+    
+    // IMPORTANTE: Adicionar à fila usando o ID do DONO e não necessariamente de quem chamou a rota (caso seja admin)
+    const queueItem = await this.queueService.addToQueue(laudoId, laudo.usuarioId);
+
     return {
       success: true,
       message: 'Laudo adicionado à fila',
