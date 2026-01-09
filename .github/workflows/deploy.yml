@@ -66,15 +66,15 @@ jobs:
             
             # Rebuild e restart dos containers
             echo "🔨 Reconstruindo containers..."
-            docker compose -f docker-compose.prod.yml build --no-cache
+            docker-compose -f docker-compose.prod.yml build --no-cache
             
             # Para containers antigos
             echo "⏹️ Parando containers antigos..."
-            docker compose -f docker-compose.prod.yml down
+            docker-compose -f docker-compose.prod.yml down
             
             # Sobe novos containers
             echo "▶️ Iniciando novos containers..."
-            docker compose -f docker-compose.prod.yml up -d
+            docker-compose -f docker-compose.prod.yml up -d
             
             # Aguarda e verifica health
             echo "⏳ Aguardando inicialização (30s)..."
@@ -87,9 +87,9 @@ jobs:
               echo "✅ Deploy concluído com sucesso!"
             else
               echo "❌ Health check falhou! Restaurando backup..."
-              docker compose -f docker-compose.prod.yml down
+              docker-compose -f docker-compose.prod.yml down
               docker tag mariah-backend:backup mariah-backend:latest
-              docker compose -f docker-compose.prod.yml up -d
+              docker-compose -f docker-compose.prod.yml up -d
               echo "🔄 Versão anterior restaurada."
               exit 1
             fi
