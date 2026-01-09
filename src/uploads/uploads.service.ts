@@ -683,4 +683,19 @@ export class UploadsService {
 
     return urls;
   }
+
+  /**
+   * Gera URL pré-assinada para a IA analisar (sem verificação de usuário)
+   * Validade: 1 hora
+   */
+  async getSignedUrlForAi(s3Key: string): Promise<string> {
+    const command = new GetObjectCommand({
+      Bucket: this.bucketName,
+      Key: s3Key,
+    });
+
+    return getSignedUrl(this.s3Client, command, {
+      expiresIn: 3600,
+    });
+  }
 }

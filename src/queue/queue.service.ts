@@ -18,6 +18,7 @@ import {
   textMatches,
 } from '../common/utils/text-normalizer.util';
 import { RabbitMQService, QueueMessage } from './rabbitmq.service';
+import { UploadsService } from '../uploads/uploads.service';
 import { SystemConfig } from '../config/entities/system-config.entity';
 import { In } from 'typeorm';
 
@@ -67,6 +68,7 @@ export class QueueService implements OnModuleInit {
     private readonly configRepository: Repository<SystemConfig>,
     private readonly openaiService: OpenAIService,
     private readonly rabbitMQService: RabbitMQService,
+    private readonly uploadsService: UploadsService,
   ) {}
 
   async onModuleInit() {
@@ -494,8 +496,7 @@ export class QueueService implements OnModuleInit {
     }
 
     // Gerar URL da imagem (pré-assinada)
-    // TODO: Integrar com UploadsService para gerar URL
-    const imageUrl = `https://seu-bucket.s3.amazonaws.com/${imagem.s3Key}`;
+    const imageUrl = await this.uploadsService.getSignedUrlForAi(imagem.s3Key);
 
     // Verificar se item tem filhos (precisa de análise em duas etapas)
     if (item.filhos && item.filhos.length > 0) {

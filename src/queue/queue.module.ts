@@ -10,6 +10,7 @@ import { ItemAmbiente } from '../ambientes/entities/item-ambiente.entity';
 import { SystemConfig } from '../config/entities/system-config.entity';
 import { OpenAIModule } from '../openai/openai.module';
 import { RabbitMQService } from './rabbitmq.service';
+import { UploadsModule } from '../uploads/uploads.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { RabbitMQService } from './rabbitmq.service';
       SystemConfig,
     ]),
     OpenAIModule,
+    UploadsModule,
   ],
   controllers: [QueueController],
   providers: [QueueService, RabbitMQService],
