@@ -25,8 +25,10 @@
     "@nestjs/mapped-types": "^2.0.4",
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-fastify": "^10.3.0",
+    "@nestjs/platform-socket.io": "^11.1.11",
     "@nestjs/swagger": "^11.2.3",
     "@nestjs/typeorm": "^10.0.1",
+    "@nestjs/websockets": "^11.1.11",
     "@types/amqplib": "^0.10.8",
     "@types/bcrypt": "^6.0.0",
     "@types/passport-jwt": "^4.0.1",
@@ -40,6 +42,7 @@
     "pg": "^8.11.3",
     "reflect-metadata": "^0.2.1",
     "rxjs": "^7.8.1",
+    "socket.io": "^4.8.3",
     "tunnel-ssh": "^5.2.0",
     "typeorm": "^0.3.19"
   },
