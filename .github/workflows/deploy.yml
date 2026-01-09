@@ -24,10 +24,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
 
       - name: 📦 Instalar dependências
-        run: npm ci
+        run: npm install --legacy-peer-deps
 
       - name: 🔨 Build
         run: npm run build
@@ -55,7 +54,7 @@ jobs:
             echo "📦 Iniciando deploy..."
             
             # Navega para o diretório do projeto
-            cd /home/ec2-user/backend-novamariah
+            cd /home/ec2-user/backend-novamaria
             
             # Pull das últimas alterações
             echo "⬇️ Baixando alterações..."
