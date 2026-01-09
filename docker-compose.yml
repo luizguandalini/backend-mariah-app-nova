@@ -1,0 +1,48 @@
+# ========================================
+# Docker Compose - RabbitMQ para Backend Mariah
+# ========================================
+# 
+# USO:
+#   Subir RabbitMQ:      docker compose up -d
+#   Ver logs:            docker compose logs -f rabbitmq
+#   Parar:               docker compose down
+#   Resetar dados:       docker compose down -v
+#
+# Após subir, rode o backend normalmente:
+#   npm run start:dev
+#
+# ========================================
+
+version: '3.8'
+
+services:
+  # ======================================
+  # RabbitMQ - Message Broker
+  # ======================================
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: mariah-rabbitmq
+    hostname: rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"    # AMQP (conexão do backend)
+      - "15672:15672"  # Management UI (http://localhost:15672)
+    environment:
+      RABBITMQ_DEFAULT_USER: mariah
+      RABBITMQ_DEFAULT_PASS: mariah2026
+      RABBITMQ_DEFAULT_VHOST: /
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+# ======================================
+# Volumes (persistência de dados)
+# ======================================
+volumes:
+  rabbitmq_data:
+    driver: local

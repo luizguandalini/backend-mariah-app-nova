@@ -10,6 +10,8 @@ import { AmbientesModule } from './ambientes/ambientes.module';
 import { LaudosModule } from './laudos/laudos.module';
 import { LaudoDetailsModule } from './laudo-details/laudo-details.module';
 import { UploadsModule } from './uploads/uploads.module';
+import { OpenAIModule } from './openai/openai.module';
+import { QueueModule } from './queue/queue.module';
 import { DatabaseSeedService } from './database/database-seed.service';
 import { Usuario } from './users/entities/usuario.entity';
 
@@ -45,8 +47,11 @@ import { Usuario } from './users/entities/usuario.entity';
     LaudosModule,
     LaudoDetailsModule,
     UploadsModule,
+    OpenAIModule,
+    QueueModule,
   ],
   controllers: [AppController],
   providers: [AppService, DatabaseSeedService],
 })
 export class AppModule {}
+

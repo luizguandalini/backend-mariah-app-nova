@@ -74,6 +74,10 @@ export class ImagemLaudo {
   @Column({ type: 'integer', default: 0 })
   ordem: number;
 
+  // Tipo do ambiente selecionado (ex: "Sala de Jantar") - determina qual Ambiente usar para buscar prompts
+  @Column({ name: 'tipo_ambiente', type: 'varchar', length: 255, nullable: true })
+  tipoAmbiente: string;
+
   @CreateDateColumn({
     name: 'created_at',
     type: 'timestamptz',
