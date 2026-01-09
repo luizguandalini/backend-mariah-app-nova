@@ -82,7 +82,7 @@ jobs:
             
             # Testa health check
             echo "🏥 Verificando health check..."
-            if curl -f http://localhost:3000/health; then
+            if curl -f http://localhost:80/health; then
               echo ""
               echo "✅ Deploy concluído com sucesso!"
             else
