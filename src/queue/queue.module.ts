@@ -11,6 +11,7 @@ import { SystemConfig } from '../config/entities/system-config.entity';
 import { OpenAIModule } from '../openai/openai.module';
 import { RabbitMQService } from './rabbitmq.service';
 import { UploadsModule } from '../uploads/uploads.module';
+import { QueueGateway } from './queue.gateway';
 
 @Module({
   imports: [
@@ -26,8 +27,8 @@ import { UploadsModule } from '../uploads/uploads.module';
     UploadsModule,
   ],
   controllers: [QueueController],
-  providers: [QueueService, RabbitMQService],
-  exports: [QueueService, RabbitMQService],
+  providers: [QueueService, RabbitMQService, QueueGateway],
+  exports: [QueueService, RabbitMQService, QueueGateway],
 })
 export class QueueModule {}
 

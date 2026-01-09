@@ -21,6 +21,7 @@ import { RabbitMQService, QueueMessage } from './rabbitmq.service';
 import { UploadsService } from '../uploads/uploads.service';
 import { SystemConfig } from '../config/entities/system-config.entity';
 import { In } from 'typeorm';
+import { QueueGateway } from './queue.gateway';
 
 export interface QueueItemResponse {
   id: string;
@@ -69,6 +70,7 @@ export class QueueService implements OnModuleInit {
     private readonly openaiService: OpenAIService,
     private readonly rabbitMQService: RabbitMQService,
     private readonly uploadsService: UploadsService,
+    private readonly queueGateway: QueueGateway,
   ) {}
 
   async onModuleInit() {
@@ -307,6 +309,8 @@ export class QueueService implements OnModuleInit {
     queueItem.status = AnalysisStatus.PROCESSING;
     queueItem.startedAt = new Date();
     await this.queueRepository.save(queueItem);
+    
+    this.queueGateway.notifyStatusChange(laudoId, AnalysisStatus.PROCESSING);
 
     try {
       while (true) {
@@ -327,6 +331,7 @@ export class QueueService implements OnModuleInit {
           await this.queueRepository.save(queueItem);
           await this.recalculatePositions();
           this.logger.log(`Laudo ${laudoId} análise concluída!`);
+          this.queueGateway.notifyStatusChange(laudoId, AnalysisStatus.COMPLETED);
           return;
         }
 
@@ -349,6 +354,15 @@ export class QueueService implements OnModuleInit {
         // Atualizar progresso
         queueItem.processedImages += 1;
         await this.queueRepository.save(queueItem);
+        
+        // Notify progress
+        const percentage = Math.round((queueItem.processedImages / queueItem.totalImages) * 100);
+        this.queueGateway.notifyProgress(laudoId, {
+            laudoId,
+            processedImages: queueItem.processedImages,
+            totalImages: queueItem.totalImages,
+            percentage,
+        });
       }
     } catch (error) {
       this.logger.error(`Erro ao processar laudo ${laudoId}: ${error.message}`);
@@ -360,6 +374,7 @@ export class QueueService implements OnModuleInit {
         queueItem.status = AnalysisStatus.ERROR;
         queueItem.errorMessage = error.message;
         await this.queueRepository.save(queueItem);
+        this.queueGateway.notifyStatusChange(laudoId, AnalysisStatus.ERROR);
       }
       throw error; // Re-throw para RabbitMQ fazer nack
     }
@@ -394,6 +409,7 @@ export class QueueService implements OnModuleInit {
         currentItem.status = AnalysisStatus.PROCESSING;
         currentItem.startedAt = new Date();
         await this.queueRepository.save(currentItem);
+        this.queueGateway.notifyStatusChange(currentItem.laudoId, AnalysisStatus.PROCESSING);
       }
 
       // Buscar próxima imagem não analisada
@@ -412,7 +428,9 @@ export class QueueService implements OnModuleInit {
         currentItem.position = null;
         await this.queueRepository.save(currentItem);
         await this.recalculatePositions();
+        await this.recalculatePositions();
         this.logger.log(`Laudo ${currentItem.laudoId} análise concluída!`);
+        this.queueGateway.notifyStatusChange(currentItem.laudoId, AnalysisStatus.COMPLETED);
         this.isProcessing = false;
         return;
       }
@@ -425,8 +443,16 @@ export class QueueService implements OnModuleInit {
       await this.processImage(nextImage, currentItem);
 
       // Atualizar progresso
-      currentItem.processedImages += 1;
-      await this.queueRepository.save(currentItem);
+       currentItem.processedImages += 1;
+       await this.queueRepository.save(currentItem);
+       
+       const percentage = Math.round((currentItem.processedImages / currentItem.totalImages) * 100);
+       this.queueGateway.notifyProgress(currentItem.laudoId, {
+           laudoId: currentItem.laudoId,
+           processedImages: currentItem.processedImages,
+           totalImages: currentItem.totalImages,
+           percentage,
+       });
 
     } catch (error) {
       this.logger.error(`Erro ao processar fila: ${error.message}`);
