@@ -13,6 +13,9 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
   private connection: amqp.ChannelModel | null = null;
   private channel: amqp.Channel | null = null;
   
+  // Callbacks para notificar quando conectar
+  private onConnectCallbacks: Array<() => void> = [];
+  
   // Configurações da fila
   private readonly QUEUE_NAME = 'laudo_analysis_queue';
   private readonly EXCHANGE_NAME = 'laudo_analysis_exchange';
@@ -56,6 +59,15 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
 
       this.logger.log(`✅ Conectado ao RabbitMQ: ${this.RABBITMQ_URL}`);
       
+      // Notificar callbacks de conexão
+      this.onConnectCallbacks.forEach(callback => {
+        try {
+          callback();
+        } catch (error) {
+          this.logger.error('Erro ao executar callback de conexão:', error);
+        }
+      });
+      
       // Handlers de erro e reconexão
       this.connection.on('error', (err) => {
         this.logger.error('RabbitMQ connection error:', err);
@@ -96,6 +108,17 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
    */
   isConnected(): boolean {
     return this.channel !== null && this.connection !== null;
+  }
+
+  /**
+   * Registra callback para ser chamado quando conectar
+   */
+  onConnect(callback: () => void): void {
+    this.onConnectCallbacks.push(callback);
+    // Se já está conectado, executar imediatamente
+    if (this.isConnected()) {
+      callback();
+    }
   }
 
   /**

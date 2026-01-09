@@ -110,16 +110,29 @@ export class QueueService implements OnModuleInit {
         await this.recalculatePositions();
     }
 
-    // Se RabbitMQ está conectado, usar consumer. Senão, fallback para polling
-    if (this.rabbitMQService.isConnected()) {
+    // Registrar callback para quando RabbitMQ conectar
+    this.rabbitMQService.onConnect(async () => {
+      // Parar fallback de polling se estiver ativo
+      if (this.processingInterval) {
+        clearInterval(this.processingInterval);
+        this.processingInterval = null;
+        this.logger.log('⬆️ RabbitMQ conectou! Parando fallback de polling...');
+      }
+      
       // Iniciar consumer RabbitMQ
-      await this.rabbitMQService.consume(async (message: QueueMessage) => {
-        await this.processLaudo(message.laudoId);
-      });
-      this.logger.log('Queue Service inicializado com RabbitMQ consumer');
-    } else {
-      // Fallback: polling a cada 30 segundos
-      this.logger.warn('RabbitMQ não disponível - usando fallback de polling');
+      try {
+        await this.rabbitMQService.consume(async (message: QueueMessage) => {
+          await this.processLaudo(message.laudoId);
+        });
+        this.logger.log('✅ Queue Service usando RabbitMQ consumer');
+      } catch (error) {
+        this.logger.error('Erro ao registrar consumer RabbitMQ:', error);
+      }
+    });
+
+    // Se RabbitMQ não está conectado ainda, usar fallback de polling
+    if (!this.rabbitMQService.isConnected()) {
+      this.logger.warn('RabbitMQ ainda não conectou - usando fallback de polling temporário');
       this.processingInterval = setInterval(() => {
         this.processNextInQueue();
       }, 30000);
