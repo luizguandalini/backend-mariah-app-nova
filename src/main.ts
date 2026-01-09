@@ -38,13 +38,25 @@ async function bootstrap() {
 
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter());
 
-  // Habilita CORS
+  // Habilita CORS baseado no ambiente
+  const isProduction = process.env.NODE_ENV === 'production';
+  const prefix = isProduction ? 'PROD_' : 'DEV_';
+  
+  // Busca FRONTEND_URL com prefixo do ambiente
+  const frontendUrl = process.env[`${prefix}FRONTEND_URL`] 
+    || process.env.FRONTEND_URL 
+    || 'http://localhost:5173';
+  const allowedOrigins = frontendUrl.split(',').map(url => url.trim());
+
   app.enableCors({
-    origin: true, // Permite todas as origens em desenvolvimento
+    origin: isProduction ? allowedOrigins : true, // Em prod, só origens específicas; em dev, todas
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
+
+  console.log(`🔒 CORS: ${isProduction ? allowedOrigins.join(', ') : 'Todas as origens (dev)'}`);
+
 
   // Habilita validação global
   app.useGlobalPipes(

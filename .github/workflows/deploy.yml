@@ -1,0 +1,111 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # Permite trigger manual
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ================================
+  # Job 1: Build e Verificação
+  # ================================
+  build:
+    name: Build & Verify
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 📦 Instalar dependências
+        run: npm ci
+
+      - name: 🔨 Build
+        run: npm run build
+
+      - name: ✅ Build concluído
+        run: echo "Build concluído com sucesso!"
+
+  # ================================
+  # Job 2: Deploy para EC2
+  # ================================
+  deploy:
+    name: Deploy to EC2
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: 🚀 Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            echo "📦 Iniciando deploy..."
+            
+            # Navega para o diretório do projeto
+            cd /home/ec2-user/backend-novamariah
+            
+            # Pull das últimas alterações
+            echo "⬇️ Baixando alterações..."
+            git pull origin main
+            
+            # Guarda a imagem atual como backup
+            echo "💾 Criando backup da imagem atual..."
+            docker tag mariah-backend:latest mariah-backend:backup 2>/dev/null || true
+            
+            # Rebuild e restart dos containers
+            echo "🔨 Reconstruindo containers..."
+            docker compose -f docker-compose.prod.yml build --no-cache
+            
+            # Para containers antigos
+            echo "⏹️ Parando containers antigos..."
+            docker compose -f docker-compose.prod.yml down
+            
+            # Sobe novos containers
+            echo "▶️ Iniciando novos containers..."
+            docker compose -f docker-compose.prod.yml up -d
+            
+            # Aguarda e verifica health
+            echo "⏳ Aguardando inicialização (30s)..."
+            sleep 30
+            
+            # Testa health check
+            echo "🏥 Verificando health check..."
+            if curl -f http://localhost:3000/health; then
+              echo ""
+              echo "✅ Deploy concluído com sucesso!"
+            else
+              echo "❌ Health check falhou! Restaurando backup..."
+              docker compose -f docker-compose.prod.yml down
+              docker tag mariah-backend:backup mariah-backend:latest
+              docker compose -f docker-compose.prod.yml up -d
+              echo "🔄 Versão anterior restaurada."
+              exit 1
+            fi
+            
+            # Limpeza de imagens antigas
+            echo "🧹 Limpando imagens não utilizadas..."
+            docker image prune -f
+            
+            echo "🎉 Deploy finalizado!"
+
+      - name: 📊 Status do Deploy
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Deploy realizado com sucesso!"
+          else
+            echo "❌ Deploy falhou. Verifique os logs acima."
+          fi
