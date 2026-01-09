@@ -156,39 +156,85 @@ export class LaudosService {
     }));
   }
 
-  async findByUsuario(usuarioId: string): Promise<Partial<Laudo>[]> {
+   async findByUsuario(usuarioId: string): Promise<Partial<Laudo>[]> {
     const laudos = await this.laudoRepository.find({
       where: { usuarioId },
       order: { createdAt: 'DESC' },
     });
-    return laudos.map((l) => ({
-      id: l.id,
-      usuarioId: l.usuarioId,
-      endereco: l.endereco,
-      rua: l.rua,
-      numero: l.numero,
-      complemento: l.complemento,
-      bairro: l.bairro,
-      cidade: l.cidade,
-      estado: l.estado,
-      cep: l.cep,
-      tipoVistoria: l.tipoVistoria,
-      tipoUso: l.tipoUso,
-      tipoImovel: l.tipoImovel,
-      tipo: l.tipo,
-      unidade: l.unidade,
-      status: l.status,
-      tamanho: l.tamanho,
-      pdfUrl: l.pdfUrl,
-      totalAmbientes: l.totalAmbientes,
-      totalFotos: l.totalFotos,
-      latitude: l.latitude,
-      longitude: l.longitude,
-      enderecoCompletoGps: l.enderecoCompletoGps,
-      incluirAtestado: l.incluirAtestado,
-      createdAt: l.createdAt,
-      updatedAt: l.updatedAt,
-    }));
+
+    if (laudos.length === 0) {
+      return [];
+    }
+
+    const laudosIds = laudos.map((l) => l.id);
+
+    // Consulta agregada eficiente para contar imagens e imagens não analisadas
+    const statsQuery = await this.imagemRepository
+      .createQueryBuilder('img')
+      .select('img.laudo_id', 'laudoId')
+      .addSelect('COUNT(*)', 'total')
+      .addSelect(
+        "SUM(CASE WHEN img.imagem_ja_foi_analisada_pela_ia = 'nao' THEN 1 ELSE 0 END)",
+        'unanalyzed',
+      )
+      .where('img.laudo_id IN (:...ids)', { ids: laudosIds })
+      .groupBy('img.laudo_id')
+      .getRawMany();
+
+    const statsMap = new Map<string, { total: number; unanalyzed: number }>();
+    statsQuery.forEach((s) => {
+      statsMap.set(s.laudoId, {
+        total: Number(s.total),
+        unanalyzed: Number(s.unanalyzed),
+      });
+    });
+
+    return laudos.map((l) => {
+      let smartStatus = l.status;
+      const stats = statsMap.get(l.id) || { total: 0, unanalyzed: 0 };
+
+      // Se tem URL de PDF, consideramos concluído
+      if (l.pdfUrl) {
+        smartStatus = StatusLaudo.CONCLUIDO;
+      }
+      // Se não está concluído, mas todas as imagens (pelo menos 1) foram analisadas
+      else if (
+        smartStatus === StatusLaudo.NAO_INICIADO &&
+        stats.total > 0 &&
+        stats.unanalyzed === 0
+      ) {
+        smartStatus = StatusLaudo.CONCLUIDO;
+      }
+
+      return {
+        id: l.id,
+        usuarioId: l.usuarioId,
+        endereco: l.endereco,
+        rua: l.rua,
+        numero: l.numero,
+        complemento: l.complemento,
+        bairro: l.bairro,
+        cidade: l.cidade,
+        estado: l.estado,
+        cep: l.cep,
+        tipoVistoria: l.tipoVistoria,
+        tipoUso: l.tipoUso,
+        tipoImovel: l.tipoImovel,
+        tipo: l.tipo,
+        unidade: l.unidade,
+        status: smartStatus,
+        tamanho: l.tamanho,
+        pdfUrl: l.pdfUrl,
+        totalAmbientes: l.totalAmbientes,
+        totalFotos: l.totalFotos,
+        latitude: l.latitude,
+        longitude: l.longitude,
+        enderecoCompletoGps: l.enderecoCompletoGps,
+        incluirAtestado: l.incluirAtestado,
+        createdAt: l.createdAt,
+        updatedAt: l.updatedAt,
+      };
+    });
   }
 
   async findOne(id: string): Promise<Laudo> {

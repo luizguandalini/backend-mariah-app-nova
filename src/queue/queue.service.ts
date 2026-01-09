@@ -126,7 +126,9 @@ export class QueueService implements OnModuleInit {
     });
 
     if (totalImages === 0) {
-      throw new BadRequestException('Este laudo não possui imagens pendentes de análise');
+      // Auto- correção: Se não tem imagens pendentes, marca como concluído
+      await this.laudoRepository.update(laudoId, { status: AnalysisStatus.COMPLETED as any }); // Cast necessário pois o enum pode ser diferente no LaudoEntity vs QueueEntity, mas os strings batem
+      throw new BadRequestException('Laudo já possui todas as imagens analisadas');
     }
 
     // Calcular próxima posição
