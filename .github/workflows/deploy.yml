@@ -46,10 +46,12 @@ jobs:
     steps:
       - name: 🚀 Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
+        timeout-minutes: 20  # Aumentado para dar tempo ao build no EC2 Free Tier
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          command_timeout: 15m  # Timeout do comando SSH (15 minutos)
           script: |
             echo "📦 Iniciando deploy..."
             
