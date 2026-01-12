@@ -12,6 +12,7 @@ import { LaudoDetailsModule } from './laudo-details/laudo-details.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { OpenAIModule } from './openai/openai.module';
 import { QueueModule } from './queue/queue.module';
+import { SystemConfigModule } from './config/config.module';
 import { DatabaseSeedService } from './database/database-seed.service';
 import { Usuario } from './users/entities/usuario.entity';
 
@@ -74,6 +75,7 @@ import { Usuario } from './users/entities/usuario.entity';
     UploadsModule,
     OpenAIModule,
     QueueModule,
+    SystemConfigModule,
   ],
   controllers: [AppController],
   providers: [AppService, DatabaseSeedService],

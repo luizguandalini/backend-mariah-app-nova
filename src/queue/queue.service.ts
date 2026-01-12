@@ -22,6 +22,7 @@ import { UploadsService } from '../uploads/uploads.service';
 import { SystemConfig } from '../config/entities/system-config.entity';
 import { In } from 'typeorm';
 import { QueueGateway } from './queue.gateway';
+import { SystemConfigService } from '../config/config.service';
 
 export interface QueueItemResponse {
   id: string;
@@ -71,6 +72,7 @@ export class QueueService implements OnModuleInit {
     private readonly rabbitMQService: RabbitMQService,
     private readonly uploadsService: UploadsService,
     private readonly queueGateway: QueueGateway,
+    private readonly systemConfigService: SystemConfigService,
   ) {}
 
   async onModuleInit() {
@@ -560,12 +562,23 @@ export class QueueService implements OnModuleInit {
       throw new Error('Análise cancelada pelo usuário');
     }
 
+    // Carregar prompt padrão do banco via SystemConfigService
+    const defaultPrompt = await this.systemConfigService.getDefaultPrompt();
+
     // Buscar prompt baseado no tipo e tipo_ambiente
     const tipoAmbiente = imagem.tipoAmbiente;
     const tipoItem = imagem.tipo;
 
     if (!tipoAmbiente || !tipoItem) {
       // Sem tipo definido - marcar como analisado sem legenda útil
+      this.logAnalysis({
+        ambiente: 'N/A',
+        item: 'N/A',
+        filho: null,
+        promptEnviado: '(tipo não identificado)',
+        resposta: 'Tipo não identificado',
+        sucesso: false,
+      });
       imagem.legenda = 'Tipo não identificado';
       imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
       await this.imagemRepository.save(imagem);
@@ -577,6 +590,14 @@ export class QueueService implements OnModuleInit {
     const ambiente = ambientes.find((a) => textMatches(a.nome, tipoAmbiente));
 
     if (!ambiente) {
+      this.logAnalysis({
+        ambiente: tipoAmbiente,
+        item: tipoItem,
+        filho: null,
+        promptEnviado: '(ambiente não encontrado)',
+        resposta: `Ambiente "${tipoAmbiente}" não encontrado`,
+        sucesso: false,
+      });
       imagem.legenda = `Ambiente "${tipoAmbiente}" não encontrado`;
       imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
       await this.imagemRepository.save(imagem);
@@ -591,6 +612,14 @@ export class QueueService implements OnModuleInit {
     const item = itens.find((i) => textMatches(i.nome, tipoItem));
 
     if (!item) {
+      this.logAnalysis({
+        ambiente: ambiente.nome,
+        item: tipoItem,
+        filho: null,
+        promptEnviado: '(item não encontrado)',
+        resposta: `Item "${tipoItem}" não encontrado`,
+        sucesso: false,
+      });
       imagem.legenda = `Item "${tipoItem}" não encontrado`;
       imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
       await this.imagemRepository.save(imagem);
@@ -602,10 +631,23 @@ export class QueueService implements OnModuleInit {
 
     // Verificar se item tem filhos (precisa de análise em duas etapas)
     if (item.filhos && item.filhos.length > 0) {
-      // Primeira etapa: identificar qual sub-item é
+      // PRIMEIRA ETAPA: identificar qual sub-item é
+      // Regra: NÃO adiciona prompt padrão ao prompt do pai quando tem filhos
+      const identifyPrompt = item.prompt;
+      
+      this.logAnalysis({
+        ambiente: ambiente.nome,
+        item: item.nome,
+        filho: '(identificando...)',
+        promptEnviado: identifyPrompt,
+        resposta: '🔄 Aguardando resposta...',
+        sucesso: true,
+        etapa: 1,
+      });
+
       const identifyResult = await this.openaiService.analyzeImage(
         imageUrl,
-        item.prompt,
+        identifyPrompt,
       );
 
       if (!identifyResult.success) {
@@ -615,6 +657,15 @@ export class QueueService implements OnModuleInit {
           await this.handleCriticalError(`${identifyResult.error?.status}: ${errorMsg}`);
           throw new Error(`Erro crítico: ${errorMsg}`);
         }
+        this.logAnalysis({
+          ambiente: ambiente.nome,
+          item: item.nome,
+          filho: null,
+          promptEnviado: identifyPrompt,
+          resposta: `❌ Erro: ${identifyResult.error?.message || 'Falha na API'}`,
+          sucesso: false,
+          etapa: 1,
+        });
         imagem.legenda = 'Erro ao analisar imagem';
         imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
         await this.imagemRepository.save(imagem);
@@ -630,6 +681,15 @@ export class QueueService implements OnModuleInit {
 
       if (!matchedChild) {
         // Não conseguiu identificar - usar resposta como referência
+        this.logAnalysis({
+          ambiente: ambiente.nome,
+          item: item.nome,
+          filho: '(não identificado)',
+          promptEnviado: identifyPrompt,
+          resposta: identifyResult.content,
+          sucesso: false,
+          etapa: 1,
+        });
         imagem.legenda = 'Não identificado';
         imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
         await this.imagemRepository.save(imagem);
@@ -645,13 +705,39 @@ export class QueueService implements OnModuleInit {
         return;
       }
 
-      // Segunda etapa: análise com prompt do filho
+      // SEGUNDA ETAPA: análise com prompt do filho
+      // Regra: ADICIONA prompt padrão ao prompt do filho
+      const childPromptFinal = defaultPrompt 
+        ? `${defaultPrompt} ${childItem.prompt}` 
+        : childItem.prompt;
+      
+      this.logAnalysis({
+        ambiente: ambiente.nome,
+        item: item.nome,
+        filho: childItem.nome,
+        promptEnviado: childPromptFinal,
+        resposta: '🔄 Aguardando resposta...',
+        sucesso: true,
+        etapa: 2,
+        defaultPromptUsado: !!defaultPrompt,
+      });
+
       const finalResult = await this.openaiService.analyzeImage(
         imageUrl,
-        childItem.prompt,
+        childPromptFinal,
       );
 
       if (finalResult.success) {
+        this.logAnalysis({
+          ambiente: ambiente.nome,
+          item: item.nome,
+          filho: childItem.nome,
+          promptEnviado: childPromptFinal,
+          resposta: finalResult.content,
+          sucesso: true,
+          etapa: 2,
+          defaultPromptUsado: !!defaultPrompt,
+        });
         imagem.legenda = finalResult.content.substring(0, 200); // Limitar a 200 chars
         imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
       } else {
@@ -661,23 +747,64 @@ export class QueueService implements OnModuleInit {
           await this.handleCriticalError(`${finalResult.error?.status}: ${errorMsg}`);
           throw new Error(`Erro crítico: ${errorMsg}`);
         }
+        this.logAnalysis({
+          ambiente: ambiente.nome,
+          item: item.nome,
+          filho: childItem.nome,
+          promptEnviado: childPromptFinal,
+          resposta: `❌ Erro: ${finalResult.error?.message || 'Falha na API'}`,
+          sucesso: false,
+          etapa: 2,
+        });
         imagem.legenda = 'Erro na análise';
         imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
       }
     } else {
-      // Item sem filhos - análise direta
-      const result = await this.openaiService.analyzeImage(imageUrl, item.prompt);
+      // ITEM SEM FILHOS - análise direta
+      // Regra: ADICIONA prompt padrão ao prompt do item
+      const promptFinal = defaultPrompt 
+        ? `${defaultPrompt} ${item.prompt}` 
+        : item.prompt;
+      
+      this.logAnalysis({
+        ambiente: ambiente.nome,
+        item: item.nome,
+        filho: null,
+        promptEnviado: promptFinal,
+        resposta: '🔄 Aguardando resposta...',
+        sucesso: true,
+        defaultPromptUsado: !!defaultPrompt,
+      });
+
+      const result = await this.openaiService.analyzeImage(imageUrl, promptFinal);
 
       if (result.success) {
+        this.logAnalysis({
+          ambiente: ambiente.nome,
+          item: item.nome,
+          filho: null,
+          promptEnviado: promptFinal,
+          resposta: result.content,
+          sucesso: true,
+          defaultPromptUsado: !!defaultPrompt,
+        });
         imagem.legenda = result.content.substring(0, 200);
         imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
       } else {
         // Verificar se é erro crítico que deve pausar a fila
         if (result.criticalError) {
           const errorMsg = result.error?.message || 'Erro crítico da OpenAI';
-          await this.handleCriticalError(`${result.error?.status}: ${errorMsg}`);
+          await this.handleCriticalError(`${errorMsg}`);
           throw new Error(`Erro crítico: ${errorMsg}`);
         }
+        this.logAnalysis({
+          ambiente: ambiente.nome,
+          item: item.nome,
+          filho: null,
+          promptEnviado: promptFinal,
+          resposta: `❌ Erro: ${result.error?.message || 'Falha na API'}`,
+          sucesso: false,
+        });
         imagem.legenda = 'Erro na análise';
         imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
       }
@@ -685,6 +812,63 @@ export class QueueService implements OnModuleInit {
 
     await this.imagemRepository.save(imagem);
     this.logger.debug(`Imagem ${imagem.id} analisada: ${imagem.legenda}`);
+  }
+
+  /**
+   * Log colorido e estruturado para análise de imagens
+   */
+  private logAnalysis(params: {
+    ambiente: string;
+    item: string;
+    filho: string | null;
+    promptEnviado: string;
+    resposta: string;
+    sucesso: boolean;
+    etapa?: number;
+    defaultPromptUsado?: boolean;
+  }): void {
+    const { ambiente, item, filho, promptEnviado, resposta, sucesso, etapa, defaultPromptUsado } = params;
+    
+    // Cores ANSI
+    const reset = '\x1b[0m';
+    const bold = '\x1b[1m';
+    const cyan = '\x1b[36m';
+    const green = '\x1b[32m';
+    const yellow = '\x1b[33m';
+    const red = '\x1b[31m';
+    const magenta = '\x1b[35m';
+    const blue = '\x1b[34m';
+    const bgBlue = '\x1b[44m';
+    const white = '\x1b[37m';
+    
+    const statusColor = sucesso ? green : red;
+    const statusIcon = sucesso ? '✅' : '❌';
+    const etapaLabel = etapa ? ` (Etapa ${etapa}/2)` : '';
+    const defaultLabel = defaultPromptUsado ? `${magenta}[+PROMPT PADRÃO]${reset} ` : '';
+    
+    // Truncar prompt e resposta para log legível
+    const promptTruncado = promptEnviado.length > 150 
+      ? promptEnviado.substring(0, 150) + '...' 
+      : promptEnviado;
+    const respostaTruncada = resposta.length > 200 
+      ? resposta.substring(0, 200) + '...' 
+      : resposta;
+    
+    console.log(`
+${bgBlue}${white}${bold}╔══════════════════════════════════════════════════════════════════════╗${reset}
+${bgBlue}${white}${bold}║  🖼️  ANÁLISE DE IMAGEM${etapaLabel}                                          ${reset}
+${bgBlue}${white}${bold}╠══════════════════════════════════════════════════════════════════════╣${reset}
+${cyan}${bold}  📍 Ambiente:${reset} ${ambiente}
+${yellow}${bold}  📦 Item:${reset} ${item}
+${blue}${bold}  👶 Filho:${reset} ${filho || '(nenhum - análise direta)'}
+${bgBlue}${white}${bold}╠══════════════════════════════════════════════════════════════════════╣${reset}
+${magenta}${bold}  📝 PROMPT ENVIADO:${reset} ${defaultLabel}
+     "${promptTruncado}"
+${bgBlue}${white}${bold}╠══════════════════════════════════════════════════════════════════════╣${reset}
+${statusColor}${bold}  ${statusIcon} RESPOSTA:${reset}
+     "${respostaTruncada}"
+${bgBlue}${white}${bold}╚══════════════════════════════════════════════════════════════════════╝${reset}
+`);
   }
 
   /**
