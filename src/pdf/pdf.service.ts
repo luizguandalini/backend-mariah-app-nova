@@ -72,7 +72,7 @@ export class PdfService {
 
       // 4. Buscar Seções para o Relatório
       const sections = await this.sectionRepository.find({
-        order: { ordem: 'ASC' },
+        order: { createdAt: 'ASC' },
         relations: ['questions'], // Assumindo relação
       });
 
@@ -562,23 +562,22 @@ export class PdfService {
 
   private getReportHtml(laudo: Laudo, sections: LaudoSection[] = []): string {
       // 1. Normalização de Mapeamento (Igual ao Frontend)
+      // 1. Normalização de Mapeamento (Igual ao Frontend - chaves sem espaços)
       const SECTION_FIELD_MAP: Record<string, { dataKey: string; fields?: string[] }> = {
-            "atestado da vistoria": { dataKey: "atestado" },
-            "análises hidráulicas": { dataKey: "analisesHidraulicas", fields: ["fluxo_agua", "vazamentos"] },
-            "análises elétricas": { dataKey: "analisesEletricas", fields: ["funcionamento", "disjuntores"] },
-            "sistema de ar": { dataKey: "sistemaAr", fields: ["ar_condicionado", "aquecimento"] },
-            "mecanismos de abertura": { dataKey: "mecanismosAbertura", fields: ["portas", "macanetas", "janelas"] },
+            "atestadodavistoria": { dataKey: "atestado" },
+            "analiseshidraulicas": { dataKey: "analisesHidraulicas", fields: ["fluxo_agua", "vazamentos"] },
+            "analiseseletricas": { dataKey: "analisesEletricas", fields: ["funcionamento", "disjuntores"] },
+            "sistemadear": { dataKey: "sistemaAr", fields: ["ar_condicionado", "aquecimento"] },
+            "mecanismosdeabertura": { dataKey: "mecanismosAbertura", fields: ["portas", "macanetas", "janelas"] },
             "revestimentos": { dataKey: "revestimentos", fields: ["tetos", "pisos", "bancadas"] },
             "mobilias": { dataKey: "mobilias", fields: ["fixa", "nao_fixa"] },
       };
 
-      const normalizeSectionName = (name: string) => name.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " "); // Manter espaços simples? O front usa replace(/\s+/g, "") mas o mapa tem espaços??
-      // Front usa replace(/\s+/g, "") na função `normalizeSectionName` que define as chaves do map.
-      // E as chaves do map no front são normalizadas (sem espaços).
-      // Mas o map que defini acima eu copiei os nomes "bonitos".
-      // Vamos ajustar. Melhor: usar chaves simples para compatibilidade.
+      // Normalização idêntica ao FRONTEND: remove acentos e TODOS os espaços
+      const normalizeSectionName = (name: string) => name.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "");
       
       const details = laudo as any; // Cast para acessar indices dinâmicos
+      this.logger.log(`Generating report for Laudo ${laudo.id}. Details keys: ${Object.keys(details)}`);
       
       // Lista de seções para processar (com interface flexível)
       const finalSections: any[] = sections.map(s => ({ ...s, questions: s.questions || [] }));
@@ -611,55 +610,53 @@ export class PdfService {
           } catch(e) {}
       }
 
-      // Render Item Helper
-      const renderItem = (sectionName: string, questionText: string, fieldIndex: number) => {
-          // Lógica de recuperação de valor igual ao Front
-          const normName = sectionName.toLowerCase().replace(/\s+/g, "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-          // Mapa com chaves normalizadas
-          const MAP: any = {
-              "atestadodavistoria": { dataKey: "atestado" },
-              "analiseshidraulicas": { dataKey: "analisesHidraulicas", fields: ["fluxo_agua", "vazamentos"] },
-              "analiseseletricas": { dataKey: "analisesEletricas", fields: ["funcionamento", "disjuntores"] },
-              "sistemadear": { dataKey: "sistemaAr", fields: ["ar_condicionado", "aquecimento"] },
-              "mecanismosdeabertura": { dataKey: "mecanismosAbertura", fields: ["portas", "macanetas", "janelas"] },
-              "revestimentos": { dataKey: "revestimentos", fields: ["tetos", "pisos", "bancadas"] },
-              "mobilias": { dataKey: "mobilias", fields: ["fixa", "nao_fixa"] },
-          };
+      // Render Item Helper - IDENTICO ao frontend renderItemDinamico
+      const renderItem = (sectionName: string, questionText: string, questionId: string, index: number) => {
+          const normalizedKey = normalizeSectionName(sectionName);
+          const mapping = SECTION_FIELD_MAP[normalizedKey];
+          
+          // Identificar a chave de dados (ex: analisesHidraulicas, dadosExtra, etc)
+          let dataKey = mapping?.dataKey || normalizedKey;
+          let fieldKey = mapping?.fields?.[index];
 
-          const mapping = MAP[normName];
-          let dataKey = mapping?.dataKey;
-          // Se não achou dataKey, tenta encontrar nos dadosExtra pelo nome original
+          // Buscar o objeto de dados da seção
+          let sectionData = details[dataKey];
           
-          let val = '-';
+          // Fallback: tentar buscar em dadosExtra
+          // Importante: para seções órfãs, o nome da seção DEVE ser usado para buscar em dadosExtra
+          if (!sectionData && details.dadosExtra) {
+               const extra = typeof details.dadosExtra === 'string' ? JSON.parse(details.dadosExtra) : details.dadosExtra;
+               // Tenta pelo nome exato ou normalizado
+               sectionData = extra[sectionName] || extra[normalizedKey];
+          }
           
-          // 1. Tentar dados estruturados na raiz
-          if (dataKey && details[dataKey]) {
-              const data = details[dataKey];
-              if (mapping.fields && mapping.fields[fieldIndex]) {
-                   val = data[mapping.fields[fieldIndex]];
-              } else if (typeof data === 'string') {
-                   val = data;
-              } else if (data[questionText]) {
-                   val = data[questionText];
-              }
-          } 
-          // 2. Tentar dadosExtra
-          else if (details.dadosExtra) {
-              const extra = typeof details.dadosExtra === 'string' ? JSON.parse(details.dadosExtra) : details.dadosExtra;
-              const sectionData = extra[sectionName] || extra[normName];
-              if (sectionData) {
-                  if (typeof sectionData === 'object') val = sectionData[questionText] || '-';
-                  else val = sectionData;
-              }
+          // Parsing se for string JSON
+          if (typeof sectionData === 'string' && sectionData.startsWith('{')) {
+            try { sectionData = JSON.parse(sectionData); } catch {}
           }
 
-          if (!val || val === '') val = '-';
-          if (typeof val === 'object') val = JSON.stringify(val);
+          // Buscar o valor da resposta
+          let value = '-';
+          if (sectionData) {
+            if (fieldKey && sectionData[fieldKey] !== undefined) {
+               value = sectionData[fieldKey];
+            } else if (typeof sectionData === 'string' && !fieldKey) {
+               // CASO CRÍTICO: Se a seção é apenas uma string (ex: Atestado), retorna ela mesma
+               value = sectionData;
+            } else if (sectionData[questionText] !== undefined) {
+               value = sectionData[questionText];
+            } else if (sectionData[questionId] !== undefined) {
+               value = sectionData[questionId];
+            }
+          }
+
+          if (value === null || value === undefined || value === '') value = '-';
+          if (typeof value === 'object') value = JSON.stringify(value);
 
           return `
             <div class="item-row">
                 <span class="item-label">${questionText}</span>
-                <span class="item-valor">${val}</span>
+                <span class="item-valor">${String(value)}</span>
             </div>
           `;
       };
@@ -673,7 +670,7 @@ export class PdfService {
           return secs.map(sec => `
             <div class="grupo avoid-break">
                 <div class="categoria-box">${sec.name}</div>
-                ${sec.questions?.map((q: any, idx: number) => renderItem(sec.name, q.questionText, idx)).join('')}
+                ${sec.questions?.map((q: any, idx: number) => renderItem(sec.name, q.questionText, q.id || '', idx)).join('')}
             </div>
           `).join('');
       };
