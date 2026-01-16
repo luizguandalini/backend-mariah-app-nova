@@ -72,7 +72,10 @@ export class QueueGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   notifyPdfProgress(laudoId: string, data: any) {
     if (this.server) {
+      this.logger.log(`Emitting pdfProgress to room laudo_${laudoId}: ${JSON.stringify(data)}`);
       this.server.to(`laudo_${laudoId}`).emit('pdfProgress', data);
+    } else {
+      this.logger.warn(`Server not ready, cannot emit pdfProgress for ${laudoId}`);
     }
   }
 }

@@ -207,6 +207,7 @@ export class PdfService {
     });
     
     await page.emulateMediaType('print');
+    await page.evaluate(() => document.fonts.ready);
 
     const pdf = await page.pdf({
         format: 'A4',
@@ -268,29 +269,29 @@ export class PdfService {
             padding: 10mm 20mm 20mm 20mm;
             overflow: hidden;
             border-top: 8px solid #6f2f9e;
-            display: flex; flex-direction: column;
+            display: block;
         }
 
         /* CAPA */
         .div-laudo-de-vistoria { background-color: #d9d9d9; margin-bottom: 20px; margin-top: 35px; }
         .div-laudo-de-vistoria h1 { text-align: center; font-size: 25px; margin: 0; padding: 10px 0; font-weight: 700; }
         
-        .div-informacoes-da-vistoria h2 { margin: 0px; font-size: 14px; border-bottom: solid #c0c0c0 1px; padding-bottom: 2px; font-weight: 700; margin-bottom: 15px; }
+        .div-informacoes-da-vistoria h2 { margin: 0px; font-size: 14px; border-bottom: solid #c0c0c0 1px; padding-bottom: 2px; font-weight: 700; }
         
         .campos { width: 100%; margin-top: 9px; display: flex; flex-direction: column; gap: 4px; }
-        .linha-campos { display: flex; width: 100%; gap: 4px; align-items: stretch; margin-bottom: 4px; }
+        .linha-campos { display: flex; width: 100%; gap: 4px; align-items: stretch; }
         
-        .formatacao-campos { display: flex; background-color: #d9d9d9; border: solid rgb(255, 255, 255) 1px; padding: 4px; align-items: baseline; }
-        .formatacao-campos > strong { font-size: 12px; margin-right: 4px; white-space: nowrap; }
-        .formatacao-campos > p { margin: 0px; font-size: 12px; word-wrap: break-word; }
+        .formatacao-campos { display: flex; background-color: #d9d9d9; padding: 2px; align-items: baseline; }
+        .formatacao-campos > strong { font-size: 12px; margin-left: 2px; white-space: nowrap; }
+        .formatacao-campos > p { margin: 0px; font-size: 12px; margin-left: 3px; word-wrap: break-word; }
         .valor-campo { text-transform: capitalize; }
         
         .campo-curto { width: 170px; flex-shrink: 0; min-height: 100%; }
         .campo-longo { flex: 1; min-height: 100%; }
         
-        .div-metodologia { margin-top: 25px; }
+        .div-metodologia { margin-top: 17px; }
         .div-metodologia > h1 { font-size: 14px; border-bottom: solid #c0c0c0 1px; margin: 0; padding-bottom: 2px; font-weight: 700; }
-        .div-metodologia > p { font-weight: 400; font-size: 14px; text-align: justify; margin: 10px 0; line-height: 1.4; }
+        .div-metodologia > p { font-weight: 400; font-size: 16px; text-align: justify; margin: 10px 0; line-height: 1.4; }
 
         /* TERMOS & AMBIENTES */
         .termos-gerais h2 { font-size: 14px; font-weight: 700; border-bottom: 1px solid #c0c0c0; padding-bottom: 4px; margin-bottom: 15px; text-transform: uppercase; }
@@ -335,6 +336,22 @@ export class PdfService {
   }
 
   private getCoverHtml(laudo: Laudo): string {
+      const METODOLOGIA_TEXTS = [
+        "Este documento tem como objetivo garantir às partes da locação o registro do estado de entrega do imóvel, integrando-se como anexo ao contrato formado. Ele concilia as obrigações contratuais e serve como referência para a aferição de eventuais alterações no imóvel ao longo do período de uso.",
+        "O laudo de vistoria foi elaborado de maneira técnica por um especialista qualificado, que examinou critérios específicos para avaliar todos os aspectos relevantes, desde apontamentos estruturais aparentes até pequenos detalhes construtivos e acessórios presentes no imóvel. O objetivo foi registrar, de forma clara e objetiva, por meio de textos e imagens, qualquer apontamento ou irregularidade, garantindo uma abordagem sistemática, imparcial e organizada em ordem cronológica, com separação por ambientes e legendas contidas e numerações sequenciais.",
+        "O documento inclui fotos de todas as paredes, pisos, tetos, portas, janelas e demais elementos que compõem o imóvel e suas instalações. As imagens foram capturadas com angulação precisa, permitindo análises previstas do estado de conservação atual do imóvel e verificações futuras. Fica reservado o direito, a qualquer tempo, das partes identificadas, por meio das imagens, qualquer ponto que não tenha sido especificado por escrito.",
+        "Os registros identificados como irregularidades ou avarias estão destacados neste laudo sob a denominação \"APONTAMENTOS\" e podem ser facilmente localizados utilizando o recurso de busca por palavras.",
+        "Este laudo não emprega termos subjetivos, como \"bom\", \"regular\" ou \"ótimo\" estado, nas análises. A descrição foi construída de forma objetiva, baseada exclusivamente em fatos observáveis, com o objetivo de evitar interpretações divergentes que possam surgir de perspectivas pessoais e garantir que as informações registradas sejam precisas e imparciais.",
+        "Os elementos adicionais ao imóvel, como acessórios, eletrodomésticos, equipamentos de arcondicionado, dispositivos em geral, lustres ou luminárias, mobília não embutida, entre outros, serão identificados no laudo pela denominação \"ITEM\"."
+      ];
+
+      const METODOLOGIA_SAIDA_TEXTS = [
+        "Este documento traz como condições de devolução do imóvel, o qual será utilizado para averiguação comparativa com a vistoria de entrada, a fim de constatar possíveis divergências que possam ter surgido no decorrer da locação.",
+        "Caberá às partes utilizar as análises apresentadas neste laudo como base comparativa com o laudo anterior, considerando o grau de relevância dos apontamentos, a atribuição de responsabilidade e a necessidade de reparo imediato dos danos causados pela locatária durante o período de uso. Conforme estabelece o art. 23, inciso III, da Lei nº 8.245/91, cabe ao locatário a restituição do imóvel no mesmo estado em que o recebeu, de acordo com o laudo de vistoria inicial. Deve-se analisar, em especial, equipamentos elétricos, quadros de distribuição de energia, instalações hidráulicas e elétricas, sistemas de ar condicionado, sistemas de aquecimento em geral ou danos decorrentes do mau uso, tais como: danos ao encanamento provocados pelo descarte de objetos em ralos e vasos sanitários, conservação de móveis, eletrodomésticos ou bens de razão estrutural, como portas, janelas, esquadrias, pias, armários, entre outros.",
+        "O método utilizado na vistoria consiste em uma análise meticulosa, baseando-se em procedimentos técnicos para avaliar todos os aspectos relevantes, desde apontamentos estruturais visíveis até pequenos detalhes construtivos e acessórios presentes no imóvel. Todos os aspectos são registrados de forma clara e objetiva, por textos e imagens, incluindo qualquer apontamento ou irregularidade aparente, salvo vício oculto. A abordagem é imparcial, e as fotos de cada ambiente trazem todos os ângulos necessários, como paredes, pisos, tetos, portas e janelas, entre outros que compõem o imóvel e suas instalações. As imagens são agrupadas e numeradas por ambiente, de modo que, mesmo na ausência de texto descrevendo algum apontamento, poderão ser identificadas por meio da interpretação dos registros fotográficos.",
+        "Os registros encontrados como irregularidades ou avarias são indicados neste laudo de vistoria pela menção da palavra \"APONTAMENTO\"."
+      ];
+
       const tipoUso = (laudo.tipoUso || 'Industrial').toLowerCase();
       const tipo = (laudo.tipoImovel || laudo.tipo || '').toLowerCase();
       const unidade = laudo.numero || '';
@@ -342,21 +359,11 @@ export class PdfService {
       const tipoVistoria = (laudo.tipoVistoria || '').toLowerCase();
       const endereco = laudo.endereco || '';
       const cep = laudo.cep || '';
-      const dataRealizacao = laudo.createdAt ? new Date(laudo.createdAt).toLocaleDateString('pt-BR') : '';
+      // No front, o campo "Realizada em:" está vazio (<p></p>), então vamos deixar vazio aqui também para ser identico.
+      const dataRealizacao = ''; 
       
-      const isSaida = tipoVistoria.includes('saída') || tipoVistoria.includes('saida');
-      
-      const metodologiaTexts = isSaida 
-        ? [
-            "A vistoria de Saída deve ser realizada com o imóvel totalmente desocupado, livre de pessoas e coisas, e tem por finalidade constatar o estado de conservação do imóvel no momento da entrega das chaves, confrontando-o com o Laudo de Vistoria de Entrada.",
-            "Este documento registra as condições aparentes do imóvel, não cobrindo vícios ocultos ou problemas que só se manifestam com o uso contínuo.",
-            "As fotos anexas ilustram a situação atual e servem de prova visual das condições descritas."
-          ]
-        : [
-            "Este documento tem como objetivo garantir às partes da locação o registro do estado de entrega do imóvel, integrando-se como anexo ao contrato formado. Ele concilia as obrigações contratuais e serve como referência para a aferição de eventuais alterações no imóvel ao longo do período de uso.",
-            "As descrições e imagens contidas neste laudo refletem a condição aparente do imóvel no momento da vistoria. Ressalva-se que testes de carga prolongada em instalações elétricas e hidráulicas não foram realizados.",
-            "Componentes como chaves, fechaduras e controles remotos foram testados em sua funcionalidade básica."
-          ];
+      const isSaida = tipoVistoria === 'saída' || tipoVistoria === 'saida';
+      const textosMetodologia = isSaida ? METODOLOGIA_SAIDA_TEXTS : METODOLOGIA_TEXTS;
 
       return `
         <div class="page-container">
@@ -406,7 +413,7 @@ export class PdfService {
             
             <div class="div-metodologia">
                 <h1>METODOLOGIA</h1>
-                ${metodologiaTexts.map(t => `<p>${t}</p>`).join('')}
+                ${textosMetodologia.map(t => `<p>${t}</p>`).join('')}
             </div>
         </div>
       `;
