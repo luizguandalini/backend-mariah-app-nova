@@ -172,6 +172,7 @@ export class PdfService {
     const processed = [];
     const BATCH_SIZE = 5;
     
+    // 1. Obter URLs assinadas
     for (let i = 0; i < total; i += BATCH_SIZE) {
         const batch = imagens.slice(i, i + BATCH_SIZE);
         const results = await Promise.all(batch.map(async (img) => {
@@ -189,7 +190,39 @@ export class PdfService {
         const totalProgress = 10 + Math.round(loopPercent * 50); 
         this.updateStatus(laudoId, 'PROCESSING', totalProgress);
     }
-    return processed;
+
+    // 2. Calcular números (numeroAmbiente e numeroImagemNoAmbiente)
+    // Agrupar por ambiente para saber a ordem
+    const ambientesMap = new Map<string, any[]>();
+    processed.forEach(img => {
+        const amb = img.ambiente || 'AMBIENTE';
+        if (!ambientesMap.has(amb)) {
+            ambientesMap.set(amb, []);
+        }
+        ambientesMap.get(amb).push(img);
+    });
+
+    // Atribuir números
+    let ambienteIndex = 1;
+    const finalImages = [];
+
+    // Iterar na ordem que aparecem (preservando ordem original do array processed)
+    // Para garantir ordem de ambientes, percorremos o map na ordem de inserção
+    for (const [nomeAmbiente, imgsDoAmbiente] of ambientesMap.entries()) {
+         imgsDoAmbiente.forEach((img, index) => {
+             img.numeroAmbiente = ambienteIndex;
+             img.numeroImagemNoAmbiente = index + 1;
+             finalImages.push(img);
+         });
+         ambienteIndex++;
+    }
+
+    // Reordenar finalImages para garantir que a ordem original do array seja respeitada se necessário, 
+    // mas geralmente agrupado por ambiente é o desejado.
+    // Se a ordem original for misturada (ambientes intercalados), essa logica agrupa.
+    // O front parece agrupar. Vamos devolver agrupado.
+    
+    return finalImages;
   }
 
   private async renderPdf(html: string): Promise<Buffer> {
@@ -485,21 +518,21 @@ export class PdfService {
           const pagePhotos = imagens.slice(i, i+PHOTOS_PER_PAGE);
           
           html += `
-            <div class="page-container">
+            <div class="page-container" style="border-top: none;">
                 <div class="grid-fotos">
-                    ${pagePhotos.map(img => `
+                    ${pagePhotos.map(img => {
+                        const ambienteSemNumero = (img.ambiente || 'AMBIENTE').replace(/^\d+\s*-\s*/, '');
+                        return `
                         <div class="foto-card">
                             <div class="foto-container">
                                 <img src="${img.publicUrl}" class="foto-img" />
                             </div>
-                            <div class="foto-ambiente">${img.ambiente || 'AMBIENTE'}</div>
-                            <div class="foto-legenda">${img.legenda || ''}</div>
+                            <div class="foto-ambiente">${ambienteSemNumero}</div>
+                            <div class="foto-legenda">
+                                <strong>${img.numeroAmbiente} (${img.numeroImagemNoAmbiente})</strong> ${img.legenda || ''}
+                            </div>
                         </div>
-                    `).join('')}
-                </div>
-                
-                <div style="position: absolute; bottom: 10mm; right: 20mm; font-size: 10px; color: #999;">
-                    Página de Fotos
+                    `}).join('')}
                 </div>
             </div>
           `;
