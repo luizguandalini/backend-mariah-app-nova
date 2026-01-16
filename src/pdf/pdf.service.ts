@@ -432,7 +432,7 @@ export class PdfService {
       });
       
       return `
-        <div class="page-container">
+        <div class="page-container" style="border-top: none;">
             <div style="height: 35px;"></div>
             
             <div class="termos-gerais">
