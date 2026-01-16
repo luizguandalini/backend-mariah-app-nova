@@ -304,10 +304,21 @@ export class PdfService {
         .page-container {
             width: 210mm; height: 297mm; position: relative;
             background-color: #fff;
-            padding: ${config.margemPagina}px;
             overflow: hidden;
-            border-top: 8px solid #6f2f9e;
             display: block;
+        }
+
+        .page-cover {
+            padding: 10mm 20mm 20mm 20mm;
+            border-top: 8px solid #6f2f9e;
+        }
+
+        .page-standard {
+            padding: 20mm;
+        }
+
+        .page-dynamic {
+            padding: ${config.margemPagina}px;
         }
 
         /* CAPA */
@@ -343,7 +354,7 @@ export class PdfService {
         .ambiente-item { font-size: 11px; line-height: 1.2; word-wrap: break-word; }
 
         /* FOTOS */
-        .grid-fotos { display: grid; grid-template-columns: repeat(3, 1fr); gap: ${config.espacamentoVertical}px ${config.espacamentoHorizontal}px; margin-top: 20px; }
+        .grid-fotos { display: grid; grid-template-columns: repeat(3, 1fr); gap: ${config.espacamentoVertical}px ${config.espacamentoHorizontal}px; margin-top: 0; }
         .foto-card { break-inside: avoid; margin-bottom: 5px; }
         .foto-container { border: 1px solid #999; margin-bottom: 4px; height: 200px; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #f0f0f0; }
         .foto-img { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }
@@ -404,7 +415,7 @@ export class PdfService {
       const textosMetodologia = isSaida ? METODOLOGIA_SAIDA_TEXTS : METODOLOGIA_TEXTS;
 
       return `
-        <div class="page-container">
+        <div class="page-container page-cover">
             <div style="height: 35px;"></div>
             
             <div class="div-laudo-de-vistoria">
@@ -470,7 +481,7 @@ export class PdfService {
       });
       
       return `
-        <div class="page-container" style="border-top: none;">
+        <div class="page-container page-standard">
             <div style="height: 35px;"></div>
             
             <div class="termos-gerais">
@@ -523,7 +534,7 @@ export class PdfService {
           const pagePhotos = imagens.slice(i, i+PHOTOS_PER_PAGE);
           
           html += `
-            <div class="page-container" style="border-top: none;">
+            <div class="page-container page-dynamic">
                 <div class="grid-fotos">
                     ${pagePhotos.map(img => {
                         const ambienteSemNumero = (img.ambiente || 'AMBIENTE').replace(/^\d+\s*-\s*/, '');
@@ -668,7 +679,7 @@ export class PdfService {
       };
 
       return `
-         <div class="page-container">
+         <div class="page-container page-standard">
             <div style="height: 35px;"></div>
             <h2 class="relatorio-titulo">RELATÓRIO GERAL DE APONTAMENTO</h2>
             
