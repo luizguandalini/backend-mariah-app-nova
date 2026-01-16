@@ -11,6 +11,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { LaudoSection } from '../laudo-details/entities/laudo-section.entity';
 import { LaudoOption } from '../laudo-details/entities/laudo-option.entity';
+import { UsersService } from '../users/users.service';
 
 @Injectable()
 export class PdfService {
@@ -27,6 +28,7 @@ export class PdfService {
     private readonly optionRepository: Repository<LaudoOption>,
     private readonly uploadsService: UploadsService,
     private readonly queueGateway: QueueGateway,
+    private readonly usersService: UsersService,
   ) {}
 
   /**
@@ -74,6 +76,9 @@ export class PdfService {
         relations: ['questions'], // Assumindo relação
       });
 
+      // 5. Buscar Configurações do Usuário
+      const config = await this.usersService.getConfiguracoesPdf(userId);
+
       // --- Processamento ---
 
       // Progresso 10% -> Processar Imagens
@@ -83,7 +88,7 @@ export class PdfService {
       // Progresso 60% -> Renderizar HTML
       this.updateStatus(laudoId, 'PROCESSING', 60);
       
-      const htmlContent = this.buildHtml(laudo, imagensProcessadas, ambientes, sections);
+      const htmlContent = this.buildHtml(laudo, imagensProcessadas, ambientes, sections, config);
 
       // Progresso 80% -> Gerar PDF
       this.updateStatus(laudoId, 'PROCESSING', 80);
@@ -254,8 +259,8 @@ export class PdfService {
 
   // --- HTML BUILDERS ---
 
-  private buildHtml(laudo: Laudo, imagens: any[], ambientes: any[], sections: LaudoSection[]): string {
-    const css = this.getCss();
+  private buildHtml(laudo: Laudo, imagens: any[], ambientes: any[], sections: LaudoSection[], config: any): string {
+    const css = this.getCss(config);
     const cover = this.getCoverHtml(laudo);
     const infoPage = this.getInfoPageHtml(laudo, ambientes);
     const photos = this.getPhotosHtml(imagens, laudo);
@@ -281,7 +286,7 @@ export class PdfService {
     `;
   }
 
-  private getCss(): string {
+  private getCss(config: any): string {
      return `
         @import url("https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap");
         
@@ -299,7 +304,7 @@ export class PdfService {
         .page-container {
             width: 210mm; height: 297mm; position: relative;
             background-color: #fff;
-            padding: 10mm 20mm 20mm 20mm;
+            padding: ${config.margemPagina}px;
             overflow: hidden;
             border-top: 8px solid #6f2f9e;
             display: block;
@@ -338,7 +343,7 @@ export class PdfService {
         .ambiente-item { font-size: 11px; line-height: 1.2; word-wrap: break-word; }
 
         /* FOTOS */
-        .grid-fotos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px 10px; margin-top: 20px; }
+        .grid-fotos { display: grid; grid-template-columns: repeat(3, 1fr); gap: ${config.espacamentoVertical}px ${config.espacamentoHorizontal}px; margin-top: 20px; }
         .foto-card { break-inside: avoid; margin-bottom: 5px; }
         .foto-container { border: 1px solid #999; margin-bottom: 4px; height: 200px; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #f0f0f0; }
         .foto-img { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }
