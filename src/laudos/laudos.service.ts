@@ -21,6 +21,7 @@ import { ImagemLaudo } from '../uploads/entities/imagem-laudo.entity';
 import { ImagensPdfResponseDto, ImagemPdfDto } from './dto/imagens-pdf-response.dto';
 
 import { UploadsService } from '../uploads/uploads.service';
+import { RabbitMQService } from '../queue/rabbitmq.service';
 
 @Injectable()
 export class LaudosService {
@@ -36,7 +37,62 @@ export class LaudosService {
     @InjectRepository(ImagemLaudo)
     private readonly imagemRepository: Repository<ImagemLaudo>,
     private readonly uploadsService: UploadsService,
+    private readonly rabbitMQService: RabbitMQService,
   ) {}
+
+  // ... (métodos existentes)
+
+  async requestPdfGeneration(laudoId: string, userId: string, userRole: UserRole): Promise<{ message: string, status: string }> {
+    const laudo = await this.findOne(laudoId);
+    
+    // Verificar permissão
+    const isOwner = laudo.usuarioId === userId;
+    const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
+
+    if (!isOwner && !isAdminOrDev) {
+      throw new ForbiddenException('Você não tem permissão para gerar o PDF deste laudo');
+    }
+
+    // Verificar se já está processando
+    if (laudo.pdfStatus === 'PROCESSING') {
+        throw new BadRequestException('O PDF já está sendo gerado. Aguarde.');
+    }
+
+    // Se já foi gerado e está completed, talvez queiramos regenerar?
+    // O usuário clicou em "Baixar Laudo" no front. Se tiver URL, o front baixa direto.
+    // Se o front chamou esse endpoint, é porque quer gerar/regenerar.
+    
+    // Atualizar status para PENDING
+    await this.laudoRepository.update(laudoId, {
+        pdfStatus: 'PENDING',
+        pdfProgress: 0,
+        pdfUrl: null // Limpar URL anterior se houver
+    });
+    
+    // Adicionar à fila
+    const success = await this.rabbitMQService.addToPdfQueue({
+        laudoId,
+        usuarioId: userId,
+        priority: 5 // Prioridade padrão
+    });
+    
+    if (!success) {
+         // Reverter status se falhar ao enfileirar
+         await this.laudoRepository.update(laudoId, {
+            pdfStatus: 'ERROR',
+            pdfProgress: 0
+        });
+        throw new BadRequestException('Erro ao enfileirar pedido de PDF. Tente novamente.');
+    }
+    
+    return {
+        message: 'Solicitação de PDF enviada com sucesso',
+        status: 'PENDING'
+    };
+  }
+
+  // ... (rest of methods)
+
 
 
   async remove(id: string, user: any): Promise<void> {

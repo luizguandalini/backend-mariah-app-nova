@@ -144,6 +144,21 @@ export class Laudo {
   })
   createdAt: Date;
 
+  @Column({
+    type: 'varchar',
+    length: 20,
+    default: 'NONE',
+    name: 'pdf_status',
+  })
+  pdfStatus: string; // 'NONE' | 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'ERROR'
+
+  @Column({
+    type: 'int',
+    default: 0,
+    name: 'pdf_progress',
+  })
+  pdfProgress: number;
+
   @UpdateDateColumn({
     name: 'updated_at',
     type: 'timestamptz',

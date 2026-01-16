@@ -684,10 +684,6 @@ export class UploadsService {
     return urls;
   }
 
-  /**
-   * Gera URL pré-assinada para a IA analisar (sem verificação de usuário)
-   * Validade: 1 hora
-   */
   async getSignedUrlForAi(s3Key: string): Promise<string> {
     const command = new GetObjectCommand({
       Bucket: this.bucketName,
@@ -697,5 +693,50 @@ export class UploadsService {
     return getSignedUrl(this.s3Client, command, {
       expiresIn: 3600,
     });
+  }
+
+  /**
+   * Upload de arquivo PDF Buffer para o S3
+   * @param buffer O buffer do PDF
+   * @param s3Key A chave de destino no S3
+   */
+  async uploadPdfBuffer(buffer: Buffer, s3Key: string): Promise<string> {
+    const command = new PutObjectCommand({
+      Bucket: this.bucketName,
+      Key: s3Key,
+      Body: buffer,
+      ContentType: 'application/pdf',
+      // ACL: 'public-read', // Se o bucket não for público, precisamos usar URLs assinadas.
+      // Vou assumir que queremos URLs assinadas para download OU bucket público.
+      // Neste projeto, parece que usamos URLs assinadas.
+    });
+
+    await this.s3Client.send(command);
+
+    // Retornar URL assinada de longa duração (ex: 7 dias) ou permanente se for público
+    // Aqui vou retornar uma URL assinada de 24 horas para o usuário baixar
+    const getCommand = new GetObjectCommand({
+        Bucket: this.bucketName,
+        Key: s3Key,
+    });
+    
+    // 24 horas = 86400 segundos
+    return getSignedUrl(this.s3Client, getCommand, { expiresIn: 86400 });
+  }
+
+  /**
+   * Deleta um arquivo genérico do S3 pela Chave
+   */
+  async deleteFile(s3Key: string): Promise<void> {
+    try {
+        const command = new DeleteObjectCommand({
+            Bucket: this.bucketName,
+            Key: s3Key,
+        });
+        await this.s3Client.send(command);
+    } catch (error) {
+        console.error(`Erro ao deletar arquivo ${s3Key} do S3:`, error);
+        // Não lançar erro para não interromper fluxos que dependem disso apenas para limpeza
+    }
   }
 }

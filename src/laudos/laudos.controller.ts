@@ -167,4 +167,16 @@ export class LaudosController {
       Number(limit),
     );
   }
+
+  @Post(':id/pdf-request')
+  @ApiOperation({ summary: 'Solicitar geração de PDF (Async via RabbitMQ)' })
+  @ApiParam({ name: 'id', description: 'ID do laudo' })
+  @ApiResponse({ status: 200, description: 'Solicitação enfileirada com sucesso' })
+  @ApiResponse({ status: 400, description: 'Já existe um processamento em andamento ou erro na fila' })
+  async requestPdf(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ) {
+    return await this.laudosService.requestPdfGeneration(id, user.id, user.role);
+  }
 }

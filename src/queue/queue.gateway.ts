@@ -69,4 +69,10 @@ export class QueueGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.server.to(`laudo_${laudoId}`).emit('statusChange', { laudoId, status });
     }
   }
+
+  notifyPdfProgress(laudoId: string, data: any) {
+    if (this.server) {
+      this.server.to(`laudo_${laudoId}`).emit('pdfProgress', data);
+    }
+  }
 }

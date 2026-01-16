@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { QueueService } from './queue.service';
 import { QueueController } from './queue.controller';
@@ -27,7 +27,7 @@ import { SystemConfigModule } from '../config/config.module';
     ]),
     OpenAIModule,
     UploadsModule,
-    LaudosModule,
+    forwardRef(() => LaudosModule),
     SystemConfigModule,
   ],
   controllers: [QueueController],
