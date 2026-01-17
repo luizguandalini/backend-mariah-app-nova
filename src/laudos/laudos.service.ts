@@ -253,6 +253,8 @@ export class LaudosService {
       return {
         id: l.id,
         usuarioId: l.usuarioId,
+        usuarioNome: l.usuario?.nome || 'Usuário desconhecido',
+        usuarioEmail: l.usuario?.email || '',
         endereco: l.endereco,
         rua: l.rua,
         numero: l.numero,
