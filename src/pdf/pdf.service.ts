@@ -50,6 +50,10 @@ export class PdfService {
       
       // Capturar URL antiga para deleção posterior
       const oldPdfUrl = laudo.pdfUrl;
+      this.logger.log(`📋 PDF antigo encontrado: ${oldPdfUrl ? 'SIM' : 'NÃO'}`);
+      if (oldPdfUrl) {
+        this.logger.log(`📋 URL do PDF antigo: ${oldPdfUrl.substring(0, 100)}...`);
+      }
 
       // 2. Buscar Imagens ordenadas
       const imagens = await this.imagemRepository.find({
@@ -101,6 +105,7 @@ export class PdfService {
 
       // Se sucesso, deletar antigo se existir
       if (oldPdfUrl) {
+          this.logger.log(`🔍 Tentando deletar PDF antigo...`);
           try {
              // Extrair key da URL. Assumindo URL assinada ou pública padrão S3.
              // Ex: https://bucket.s3.region.amazonaws.com/laudos/pdf/xxx.pdf?signature...
@@ -115,14 +120,20 @@ export class PdfService {
              
              // Regex simples para pegar a key
              const match = oldPdfUrl.match(/(laudos\/pdf\/[^?]+)/);
+             this.logger.log(`🔍 Regex match result: ${JSON.stringify(match)}`);
              if (match && match[1]) {
                  const oldKey = match[1];
                  this.logger.log(`🗑️ Removendo PDF antigo: ${oldKey}`);
                  await this.uploadsService.deleteFile(oldKey);
+                 this.logger.log(`✅ PDF antigo deletado com sucesso: ${oldKey}`);
+             } else {
+                 this.logger.warn(`⚠️ Não foi possível extrair chave S3 da URL: ${oldPdfUrl}`);
              }
           } catch(err) {
-              this.logger.warn('Falha ao tentar remover PDF antigo', err);
+              this.logger.warn('❌ Falha ao tentar remover PDF antigo', err);
           }
+      } else {
+          this.logger.log(`ℹ️ Nenhum PDF antigo para deletar (primeiro PDF deste laudo)`);
       }
 
       // Finalizar

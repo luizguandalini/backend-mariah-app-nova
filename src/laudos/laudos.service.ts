@@ -63,10 +63,12 @@ export class LaudosService {
     // Se o front chamou esse endpoint, é porque quer gerar/regenerar.
     
     // Atualizar status para PENDING
+    // NÃO limpamos pdfUrl aqui para que o PdfService possa acessar a URL antiga
+    // e deletar o arquivo antigo do S3 após gerar o novo com sucesso
     await this.laudoRepository.update(laudoId, {
         pdfStatus: 'PENDING',
         pdfProgress: 0,
-        pdfUrl: null // Limpar URL anterior se houver
+        // pdfUrl mantido para deleção do antigo
     });
     
     // Adicionar à fila

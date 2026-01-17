@@ -732,14 +732,16 @@ export class UploadsService {
    * Deleta um arquivo genérico do S3 pela Chave
    */
   async deleteFile(s3Key: string): Promise<void> {
+    console.log(`[UploadsService] 🗑️ Iniciando deleção de arquivo: ${s3Key}`);
     try {
         const command = new DeleteObjectCommand({
             Bucket: this.bucketName,
             Key: s3Key,
         });
         await this.s3Client.send(command);
+        console.log(`[UploadsService] ✅ Arquivo deletado com sucesso: ${s3Key}`);
     } catch (error) {
-        console.error(`Erro ao deletar arquivo ${s3Key} do S3:`, error);
+        console.error(`[UploadsService] ❌ Erro ao deletar arquivo ${s3Key} do S3:`, error);
         // Não lançar erro para não interromper fluxos que dependem disso apenas para limpeza
     }
   }
