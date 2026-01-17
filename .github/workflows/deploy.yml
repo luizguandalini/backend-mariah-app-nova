@@ -67,6 +67,11 @@ jobs:
             echo "💾 Criando backup da imagem atual..."
             docker tag mariah-backend:latest mariah-backend:backup 2>/dev/null || true
             
+            # Limpeza preventiva para liberar espaço
+            echo "🧹 Limpeza preventiva..."
+            docker container prune -f
+            docker image prune -f
+            
             # Rebuild e restart dos containers
             echo "🔨 Reconstruindo containers..."
             docker-compose -f docker-compose.prod.yml build --no-cache
