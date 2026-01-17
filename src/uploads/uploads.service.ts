@@ -640,6 +640,7 @@ export class UploadsService {
     imagemId: string,
     legenda: string,
     userId: string,
+    userRole?: UserRole,
   ): Promise<{ id: string; legenda: string }> {
     const imagem = await this.imagemLaudoRepository.findOne({
       where: { id: imagemId },
@@ -650,8 +651,11 @@ export class UploadsService {
       throw new NotFoundException('Imagem não encontrada');
     }
 
-    // Verificar se a imagem pertence ao usuário
-    if (imagem.laudo.usuarioId !== userId) {
+    // Verificar se a imagem pertence ao usuário ou se é admin
+    const isOwner = imagem.laudo.usuarioId === userId;
+    const isAdminOrDev = userRole && [UserRole.DEV, UserRole.ADMIN].includes(userRole);
+
+    if (!isOwner && !isAdminOrDev) {
       throw new ForbiddenException('Você não tem permissão para editar esta imagem');
     }
 

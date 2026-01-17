@@ -166,7 +166,7 @@ export class UploadsController {
     @Param('id') imagemId: string,
     @Body() dto: UpdateLegendaDto,
   ) {
-    return this.uploadsService.updateLegenda(imagemId, dto.legenda, req.user.id);
+    return this.uploadsService.updateLegenda(imagemId, dto.legenda, req.user.id, req.user.role);
   }
 
   /**
