@@ -130,7 +130,23 @@ export class LaudosService {
         }
       }
 
-      // 2. Deletar imagens do S3 primeiro (operação async fora do banco)
+      // 2. Deletar PDF do S3 (se existir)
+      if (laudo.pdfUrl) {
+        try {
+          // Extrair s3Key da URL do PDF usando regex
+          // Padrão S3 Key: laudos/pdf/{id}_{timestamp}.pdf
+          const match = laudo.pdfUrl.match(/(laudos\/pdf\/[^?]+)/);
+          if (match && match[1]) {
+            const pdfS3Key = match[1];
+            await this.uploadsService.deleteFile(pdfS3Key);
+          }
+        } catch (err) {
+          // Não interrompe o fluxo se falhar a deleção do PDF
+          console.warn('Falha ao tentar remover PDF do S3:', err);
+        }
+      }
+
+      // 3. Deletar imagens do S3 (operação async fora do banco)
       // Nota: Idealmente faríamos isso fora da transaction do banco se quiséssemos atomicidade rigorosa do banco vs falha S3,
       // mas aqui queremos garantir que o banco só muda se tudo correr "bem" ou pelo menos iniciarmos o processo.
       // Como o delete do S3 não é transacional com o banco, se falhar o S3, o banco pode rollbackar ou não dependendo de onde colocarmos.
