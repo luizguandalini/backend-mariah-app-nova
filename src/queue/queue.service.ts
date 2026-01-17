@@ -145,26 +145,50 @@ export class QueueService implements OnModuleInit {
   /**
    * Adiciona um laudo à fila de análise
    */
-  async addToQueue(laudoId: string, userId: string): Promise<AnalysisQueue> {
+  async addToQueue(laudoId: string, userId: string, force: boolean = false): Promise<AnalysisQueue> {
     // Verificar se já está na fila
     const existing = await this.queueRepository.findOne({
       where: { laudoId },
     });
 
     if (existing) {
-      if (existing.status === AnalysisStatus.PROCESSING) {
-        throw new BadRequestException('Este laudo já está sendo analisado');
+      // Se force for true, permite reanalisar se não estiver PROCESSANDO
+      if (force) {
+        if (existing.status === AnalysisStatus.PROCESSING) {
+           throw new BadRequestException('Este laudo já está sendo analisado no momento');
+        }
+        // Se estiver em qualquer outro estado (COMPLETED, ERROR, CANCELLED, PAUSED, PENDING), removemos para reiniciar
+        await this.queueRepository.remove(existing);
+      } else {
+        // Comportamento padrão (sem force)
+        if (existing.status === AnalysisStatus.PROCESSING) {
+          throw new BadRequestException('Este laudo já está sendo analisado');
+        }
+        if (existing.status === AnalysisStatus.PENDING) {
+          throw new BadRequestException('Este laudo já está na fila');
+        }
+        // Se já foi completado ou deu erro, remover para re-adicionar
+        await this.queueRepository.remove(existing);
       }
-      if (existing.status === AnalysisStatus.PENDING) {
-        throw new BadRequestException('Este laudo já está na fila');
-      }
-      // Se já foi completado ou deu erro, remover para re-adicionar
-      await this.queueRepository.remove(existing);
     }
 
     // Verificar se OpenAI está configurada
     if (!this.openaiService.isConfigured()) {
       throw new BadRequestException('Análise por IA não está configurada. Contate o administrador.');
+    }
+
+    // LÓGICA FORCE: Resetar status de todas as imagens do laudo
+    if (force) {
+        await this.imagemRepository.createQueryBuilder()
+            .update(ImagemLaudo)
+            .set({ 
+                imagemJaFoiAnalisadaPelaIa: 'nao',
+                // Opcional: limpar legenda também? Por enquanto manter a antiga até ser substituída
+            })
+            .where("laudoId = :laudoId", { laudoId })
+            .execute();
+            
+        this.logger.log(`[FORCE] Resetado status de imagens para laudo ${laudoId}`);
     }
 
     // Contar imagens não analisadas do laudo
@@ -176,9 +200,11 @@ export class QueueService implements OnModuleInit {
     });
 
     if (totalImages === 0) {
-      // Auto- correção: Se não tem imagens pendentes, marca como concluído
+      // Auto-correção: Se não tem imagens pendentes -> marca como concluído
+      // (Só lança erro se NÃO for force, pois se for force acabamos de resetar, então deveria ter imagens)
+      // Se mesmo com force deu 0, é porque laudo não tem imagens.
       await this.laudoRepository.update(laudoId, { status: StatusLaudo.CONCLUIDO });
-      throw new BadRequestException('Laudo já possui todas as imagens analisadas');
+      throw new BadRequestException('Laudo não possui imagens para analisar');
     }
 
     // Calcular próxima posição
@@ -199,7 +225,7 @@ export class QueueService implements OnModuleInit {
     });
 
     const saved = await this.queueRepository.save(queueItem);
-    this.logger.log(`Laudo ${laudoId} adicionado à fila na posição ${nextPosition}`);
+    this.logger.log(`Laudo ${laudoId} adicionado à fila na posição ${nextPosition} (Force: ${force})`);
 
     // Enviar para RabbitMQ se conectado
     if (this.rabbitMQService.isConnected()) {

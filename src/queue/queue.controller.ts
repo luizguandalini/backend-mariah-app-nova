@@ -6,8 +6,10 @@ import {
   Param,
   UseGuards,
   Request,
+  Body,
   ForbiddenException,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { LaudosService } from '../laudos/laudos.service';
 import { QueueService } from './queue.service';
@@ -28,7 +30,11 @@ export class QueueController {
    * Adiciona um laudo à fila de análise
    */
   @Post('analisar-laudo/:laudoId')
-  async addToQueue(@Param('laudoId') laudoId: string, @Request() req: any) {
+  async addToQueue(
+    @Param('laudoId') laudoId: string, 
+    @Request() req: any,
+    @Body() body: { force?: boolean }
+  ) {
     // Buscar laudo para verificar permissão
     const laudo = await this.laudosService.findOne(laudoId);
     if (!laudo) {
@@ -43,11 +49,12 @@ export class QueueController {
     }
     
     // IMPORTANTE: Adicionar à fila usando o ID do DONO e não necessariamente de quem chamou a rota (caso seja admin)
-    const queueItem = await this.queueService.addToQueue(laudoId, laudo.usuarioId);
+    // Passar flag force se fornecida
+    const queueItem = await this.queueService.addToQueue(laudoId, laudo.usuarioId, body?.force);
 
     return {
       success: true,
-      message: 'Laudo adicionado à fila',
+      message: body?.force ? 'Reanálise iniciada com sucesso' : 'Laudo adicionado à fila',
       position: queueItem.position,
       totalImages: queueItem.totalImages,
     };
