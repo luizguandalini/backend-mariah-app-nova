@@ -23,6 +23,20 @@ FROM node:20-alpine AS production
 
 WORKDIR /app
 
+# Instala Chromium e dependências necessárias para o Puppeteer no Alpine
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    wget
+
+# Configurações para o Puppeteer usar o Chromium do sistema
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
 # Variáveis de ambiente padrão
 ENV NODE_ENV=production
 ENV PORT=3000

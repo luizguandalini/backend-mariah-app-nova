@@ -232,8 +232,9 @@ export class PdfService {
 
   private async renderPdf(html: string): Promise<Buffer> {
     const browser = await puppeteer.launch({
+       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
        headless: true,
-       args: ['--no-sandbox', '--disable-setuid-sandbox'],
+       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     });
     const page = await browser.newPage();
     // Aumentar timeout para 60s (imagens pesadas)
