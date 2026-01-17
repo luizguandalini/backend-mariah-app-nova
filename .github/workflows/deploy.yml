@@ -59,6 +59,26 @@ jobs:
             # Navega para o diretório do projeto
             cd /home/ec2-user/backend-novamaria
             
+            # ================================
+            # VERIFICAÇÃO DE ESPAÇO EM DISCO
+            # ================================
+            echo "💾 Verificando espaço em disco..."
+            DISK_AVAILABLE=$(df -BG / | awk 'NR==2 {print $4}' | sed 's/G//')
+            DISK_REQUIRED=5  # Mínimo de 5GB necessários
+            
+            echo "📊 Espaço disponível: ${DISK_AVAILABLE}GB"
+            echo "📊 Espaço necessário: ${DISK_REQUIRED}GB"
+            
+            if [ "$DISK_AVAILABLE" -lt "$DISK_REQUIRED" ]; then
+              echo "❌ ERRO: Espaço em disco insuficiente!"
+              echo "❌ Disponível: ${DISK_AVAILABLE}GB | Necessário: ${DISK_REQUIRED}GB"
+              echo "❌ Deploy abortado para manter versão atual rodando."
+              echo "⚠️ Execute 'docker system prune -a -f' no servidor para liberar espaço."
+              exit 1
+            fi
+            
+            echo "✅ Espaço em disco suficiente. Continuando deploy..."
+            
             # Pull das últimas alterações
             echo "⬇️ Baixando alterações..."
             git pull origin main
