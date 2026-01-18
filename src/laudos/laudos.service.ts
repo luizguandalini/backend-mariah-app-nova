@@ -53,9 +53,9 @@ export class LaudosService {
       throw new ForbiddenException('Você não tem permissão para gerar o PDF deste laudo');
     }
 
-    // Verificar se já está processando
-    if (laudo.pdfStatus === 'PROCESSING') {
-        throw new BadRequestException('O PDF já está sendo gerado. Aguarde.');
+    // Verificar se já está processando ou pendente na fila
+    if (laudo.pdfStatus === 'PROCESSING' || laudo.pdfStatus === 'PENDING') {
+        throw new BadRequestException('O PDF já está sendo gerado ou está na fila. Aguarde.');
     }
 
     // Se já foi gerado e está completed, talvez queiramos regenerar?
