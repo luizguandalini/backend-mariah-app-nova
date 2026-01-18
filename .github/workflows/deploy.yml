@@ -60,24 +60,90 @@ jobs:
             cd /home/ec2-user/backend-novamaria
             
             # ================================
-            # VERIFICAÇÃO DE ESPAÇO EM DISCO
+            # VERIFICAÇÃO INTELIGENTE DE ESPAÇO EM DISCO
             # ================================
             echo "💾 Verificando espaço em disco..."
-            DISK_AVAILABLE=$(df -BG / | awk 'NR==2 {print $4}' | sed 's/G//')
             DISK_REQUIRED=5  # Mínimo de 5GB necessários
             
+            # Função para verificar espaço disponível
+            check_disk_space() {
+              df -BG / | awk 'NR==2 {print $4}' | sed 's/G//'
+            }
+            
+            # Verificação inicial
+            DISK_AVAILABLE=$(check_disk_space)
             echo "📊 Espaço disponível: ${DISK_AVAILABLE}GB"
             echo "📊 Espaço necessário: ${DISK_REQUIRED}GB"
             
+            # Se não houver espaço suficiente, tenta limpeza automática
             if [ "$DISK_AVAILABLE" -lt "$DISK_REQUIRED" ]; then
-              echo "❌ ERRO: Espaço em disco insuficiente!"
-              echo "❌ Disponível: ${DISK_AVAILABLE}GB | Necessário: ${DISK_REQUIRED}GB"
-              echo "❌ Deploy abortado para manter versão atual rodando."
-              echo "⚠️ Execute 'docker system prune -a -f' no servidor para liberar espaço."
-              exit 1
+              echo "⚠️ Espaço insuficiente detectado. Iniciando limpeza automática..."
+              
+              # ===== TENTATIVA 1: Limpeza Docker Básica =====
+              echo "🧹 [Tentativa 1/3] Limpeza Docker básica..."
+              docker container prune -f
+              docker image prune -f
+              docker volume prune -f
+              
+              DISK_AVAILABLE=$(check_disk_space)
+              echo "📊 Espaço após limpeza básica: ${DISK_AVAILABLE}GB"
+              
+              if [ "$DISK_AVAILABLE" -ge "$DISK_REQUIRED" ]; then
+                echo "✅ Espaço liberado com sucesso! Continuando deploy..."
+              else
+                # ===== TENTATIVA 2: Limpeza Docker Agressiva =====
+                echo "🧹 [Tentativa 2/3] Limpeza Docker agressiva (removendo imagens não utilizadas)..."
+                docker system prune -a -f
+                
+                DISK_AVAILABLE=$(check_disk_space)
+                echo "📊 Espaço após limpeza agressiva: ${DISK_AVAILABLE}GB"
+                
+                if [ "$DISK_AVAILABLE" -ge "$DISK_REQUIRED" ]; then
+                  echo "✅ Espaço liberado com sucesso! Continuando deploy..."
+                else
+                  # ===== TENTATIVA 3: Limpeza de Logs e Cache do Sistema =====
+                  echo "🧹 [Tentativa 3/3] Limpeza de logs e cache do sistema..."
+                  
+                  # Limpa logs antigos do Docker
+                  echo "Limpando logs do Docker..."
+                  sudo find /var/lib/docker/containers/ -type f -name "*.log" -delete 2>/dev/null || true
+                  
+                  # Limpa logs do sistema (mantém últimos 7 dias)
+                  echo "Limpando logs do sistema..."
+                  sudo journalctl --vacuum-time=7d 2>/dev/null || true
+                  
+                  # Limpa cache do npm (se existir)
+                  echo "Limpando cache do npm..."
+                  npm cache clean --force 2>/dev/null || true
+                  
+                  # Limpa arquivos temporários
+                  echo "Limpando arquivos temporários..."
+                  sudo rm -rf /tmp/* 2>/dev/null || true
+                  
+                  DISK_AVAILABLE=$(check_disk_space)
+                  echo "📊 Espaço após limpeza completa: ${DISK_AVAILABLE}GB"
+                  
+                  if [ "$DISK_AVAILABLE" -ge "$DISK_REQUIRED" ]; then
+                    echo "✅ Espaço liberado com sucesso! Continuando deploy..."
+                  else
+                    # ===== FALHA: Não foi possível liberar espaço suficiente =====
+                    echo "❌ ERRO: Não foi possível liberar espaço suficiente!"
+                    echo "❌ Disponível após todas as tentativas: ${DISK_AVAILABLE}GB"
+                    echo "❌ Necessário: ${DISK_REQUIRED}GB"
+                    echo "❌ Deploy abortado para manter versão atual rodando."
+                    echo ""
+                    echo "📋 Ações recomendadas:"
+                    echo "  1. Conecte-se ao servidor via SSH"
+                    echo "  2. Execute: df -h (para ver uso de disco)"
+                    echo "  3. Execute: du -sh /var/lib/docker (para ver uso do Docker)"
+                    echo "  4. Considere aumentar o tamanho do disco da instância EC2"
+                    exit 1
+                  fi
+                fi
+              fi
+            else
+              echo "✅ Espaço em disco suficiente. Continuando deploy..."
             fi
-            
-            echo "✅ Espaço em disco suficiente. Continuando deploy..."
             
             # Pull das últimas alterações
             echo "⬇️ Baixando alterações..."
@@ -86,11 +152,6 @@ jobs:
             # Guarda a imagem atual como backup
             echo "💾 Criando backup da imagem atual..."
             docker tag mariah-backend:latest mariah-backend:backup 2>/dev/null || true
-            
-            # Limpeza preventiva para liberar espaço
-            echo "🧹 Limpeza preventiva..."
-            docker container prune -f
-            docker image prune -f
             
             # Rebuild e restart dos containers
             echo "🔨 Reconstruindo containers..."
