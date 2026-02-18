@@ -58,7 +58,7 @@ export class PdfService {
       // 2. Buscar Imagens ordenadas
       const imagens = await this.imagemRepository.find({
         where: { laudoId },
-        order: { ordem: 'ASC' },
+        order: { ambiente: 'ASC', ordem: 'ASC' },
       });
 
       // 3. Derivar Ambientes das Imagens
@@ -283,6 +283,9 @@ export class PdfService {
       <html>
         <head>
           <meta charset="UTF-8">
+          <link rel="preconnect" href="https://fonts.googleapis.com">
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+          <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
           <style>${css}</style>
         </head>
         <body>
@@ -308,8 +311,6 @@ export class PdfService {
 
   private getCss(config: any): string {
      return `
-        @import url("https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap");
-        
         * { box-sizing: border-box; }
         
         body { 
@@ -375,11 +376,12 @@ export class PdfService {
 
         /* FOTOS */
         .grid-fotos { display: grid; grid-template-columns: repeat(3, 1fr); gap: ${config.espacamentoVertical}px ${config.espacamentoHorizontal}px; margin-top: 0; }
-        .foto-card { break-inside: avoid; margin-bottom: 5px; }
-        .foto-container { border: 1px solid #999; margin-bottom: 4px; height: 200px; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #f0f0f0; }
-        .foto-img { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }
+        .foto-card { break-inside: avoid; }
+        .foto-container { border: 1px solid #9ca3af; margin-bottom: 4px; overflow: hidden; }
+        .foto-img { width: 100%; height: 200px; object-fit: cover; object-position: center; display: block; }
         .foto-ambiente { font-weight: bold; font-size: 10px; text-transform: uppercase; line-height: 1.2; text-align: left; }
-        .foto-legenda { font-size: 9px; line-height: 1.4; text-align: left; min-height: 12px; }
+        .foto-legenda { font-size: 9px; line-height: 1.4; text-align: left; }
+        .foto-legenda strong { margin-right: 4px; }
 
         /* RELATÓRIO */
         .relatorio-titulo { font-size: 14px; font-weight: 700; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 20px; text-transform: uppercase; }
