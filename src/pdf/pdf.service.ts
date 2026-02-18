@@ -293,6 +293,14 @@ export class PdfService {
             ${photos}
             <div class="page-break"></div>
             ${report}
+            <script>
+              document.querySelectorAll('.page-container').forEach(function(page, i) {
+                var footer = document.createElement('div');
+                footer.className = 'page-footer';
+                footer.textContent = String(i + 1);
+                page.appendChild(footer);
+              });
+            </script>
         </body>
       </html>
     `;
@@ -393,6 +401,16 @@ export class PdfService {
         .item-valor { font-weight: 700; text-transform: uppercase; text-align: right; max-width: 50%; }
         
         .avoid-break { page-break-inside: avoid; }
+
+        /* RODAPÉ - NÚMERO DE PÁGINA */
+        .page-footer {
+            position: absolute;
+            bottom: 10mm;
+            right: 15mm;
+            font-family: 'Roboto', Arial, sans-serif;
+            font-size: 10px;
+            color: #555;
+        }
      `;
   }
 
