@@ -45,7 +45,7 @@ export class OpenAIService implements OnModuleInit {
   private readonly logger = new Logger(OpenAIService.name);
   private apiKey: string | null = null;
   private model: string = 'gpt-4o';
-  private maxTokens: number = 500;
+  private maxTokens: number = 150;
   private rateLimitRpm: number = 20;
   private rateLimitDelayMs: number = 3000;
   private lastRequestTime: number = 0;
@@ -69,7 +69,7 @@ export class OpenAIService implements OnModuleInit {
 
       this.apiKey = configMap.get('openai_api_key') || null;
       this.model = configMap.get('openai_model') || 'gpt-4o';
-      this.maxTokens = parseInt(configMap.get('openai_max_tokens') || '500', 10);
+      this.maxTokens = parseInt(configMap.get('openai_max_tokens') || '70', 10);
       this.rateLimitRpm = parseInt(configMap.get('rate_limit_rpm') || '20', 10);
       this.rateLimitDelayMs = parseInt(configMap.get('rate_limit_delay_ms') || '3000', 10);
 
