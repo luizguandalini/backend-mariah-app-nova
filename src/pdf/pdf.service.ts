@@ -867,8 +867,8 @@ export class PdfService {
           `).join('');
       };
 
-      const logoImagePath = path.join(process.cwd(), 'promove-vistorias-imobiliarias.png');
-      const logoBase64 = `data:image/png;base64,${fs.readFileSync(logoImagePath).toString('base64')}`;
+      // Imagem removida conforme solicitado
+      const logoBase64 = '';
 
       const frontendUrl = process.env[`${process.env.NODE_ENV === 'production' ? 'PROD' : 'DEV'}_FRONTEND_URL`]
           || process.env.FRONTEND_URL
@@ -909,20 +909,9 @@ export class PdfService {
                 <div class="encerramento-titulo">ENCERRAMENTO</div>
                 <hr class="encerramento-divisor" />
                 <p class="encerramento-text">
-                    Encerra o presente termo, a empresa PROMOVE VISTORIAS, inscrita no CNPJ 40.249.900/0001-91,
-                    sediada na Rua Orense, 41, Sala 1106 - Centro - Diadema, representada pelo vistoriador
-                    certificado e responsável técnico, o qual certifica e dá fé dos registros apresentados.
+                    Encerra o presente termo, o qual certifica e dá fé dos registros apresentados.
                 </p>
-                <p class="encerramento-fechamento">Cordialmente,</p>
                 <div class="encerramento-rodape">
-                    <div class="encerramento-responsavel">
-                        Responsável Técnico<br/>
-                        Renato Saavedra Gomes - CERT 30535050
-                    </div>
-                    <div class="encerramento-logo-bloco">
-                        <img src="${logoBase64}" alt="Promove Vistorias" />
-                        <div class="encerramento-logo-nome">PROMOVE VISTORIAS IMOBILIÁRIAS</div>
-                    </div>
                 </div>
             </div>
          </div>
