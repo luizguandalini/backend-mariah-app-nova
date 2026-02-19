@@ -154,6 +154,46 @@ export class CreateLaudoDto {
   @IsOptional()
   mobilias?: object;
 
+  @ApiPropertyOptional({ description: 'Nome do Locador' })
+  @IsString()
+  @IsOptional()
+  locadorNome?: string;
+
+  @ApiPropertyOptional({ description: 'Assinatura do Locador' })
+  @IsString()
+  @IsOptional()
+  locadorAssinatura?: string;
+
+  @ApiPropertyOptional({ description: 'Nome do Locatário' })
+  @IsString()
+  @IsOptional()
+  locatarioNome?: string;
+
+  @ApiPropertyOptional({ description: 'Assinatura do Locatário' })
+  @IsString()
+  @IsOptional()
+  locatarioAssinatura?: string;
+
+  @ApiPropertyOptional({ description: 'Nome da Testemunha 1' })
+  @IsString()
+  @IsOptional()
+  testemunha1Nome?: string;
+
+  @ApiPropertyOptional({ description: 'RG da Testemunha 1' })
+  @IsString()
+  @IsOptional()
+  testemunha1Rg?: string;
+
+  @ApiPropertyOptional({ description: 'Nome da Testemunha 2' })
+  @IsString()
+  @IsOptional()
+  testemunha2Nome?: string;
+
+  @ApiPropertyOptional({ description: 'RG da Testemunha 2' })
+  @IsString()
+  @IsOptional()
+  testemunha2Rg?: string;
+
   @ApiPropertyOptional({ description: 'Dados extras de seções dinâmicas (JSON)' })
   @IsObject()
   @IsOptional()

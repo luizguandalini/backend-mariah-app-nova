@@ -278,6 +278,7 @@ export class PdfService {
     const infoPage = this.getInfoPageHtml(laudo, ambientes);
     const photos = this.getPhotosHtml(imagens, laudo);
     const report = await this.getReportHtml(laudo, sections);
+    const signatures = this.getSignaturesHtml(laudo);
 
     return `
       <!DOCTYPE html>
@@ -297,6 +298,8 @@ export class PdfService {
             ${photos}
             <div class="page-break"></div>
             ${report}
+            <div class="page-break"></div>
+            ${signatures}
             <script>
               document.querySelectorAll('.page-container').forEach(function(page, i) {
                 var footer = document.createElement('div');
@@ -307,6 +310,96 @@ export class PdfService {
             </script>
         </body>
       </html>
+    `;
+  }
+
+  private getSignaturesHtml(laudo: Laudo): string {
+    const dataFull = laudo.dataVistoria ? new Date(laudo.dataVistoria) : (laudo.createdAt ? new Date(laudo.createdAt) : new Date());
+    const dia = dataFull.getDate().toString().padStart(2, '0');
+    const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    const mes = meses[dataFull.getMonth()];
+    const ano = dataFull.getFullYear();
+    const cidade = laudo.cidade || 'São Paulo';
+
+    return `
+      <div class="page-container page-standard">
+        <div style="height: 35px;"></div>
+        
+        <h2 class="assinaturas-titulo">ASSINATURAS</h2>
+        
+        <p class="assinaturas-texto">
+          Declaram as partes estarem cientes das imagens e textos apresentados no presente
+          termo, estando em conformidade com a vontade dos contratantes que, "As Partes e as
+          testemunhas envolvidas neste instrumento afirmam e declaram que esse poderá ser
+          assinado presencialmente ou eletronicamente, sendo as assinaturas consideradas
+          válidas, vinculantes e executáveis, desde que firmadas pelos representantes legais das
+          Partes. e pôr estarem justos e contratados, assinam o presente, para um só efeito, diante
+          de 02 (duas) testemunhas.
+        </p>
+
+        <div class="assinaturas-data">
+          ${cidade}, ${dia} de ${mes} de ${ano}
+        </div>
+
+        <!-- LOCADOR -->
+        <div class="assinaturas-box-wrapper">
+            <div class="assinaturas-box-header">LOCADOR(A)</div>
+            <div class="assinaturas-box">
+                <div class="assinaturas-box-content">
+                    <div class="assinaturas-box-col">
+                        <div class="assinaturas-valor">${laudo.locadorNome || ''}</div>
+                        <div class="assinaturas-label">Qualificação / Nome</div>
+                    </div>
+                    <div class="assinaturas-box-col">
+                        <div class="assinaturas-valor">${laudo.locadorAssinatura || ''}</div>
+                        <div class="assinaturas-label">Assinatura</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- LOCATÁRIO -->
+        <div class="assinaturas-box-wrapper">
+            <div class="assinaturas-box-header">LOCATÁRIO(A)</div>
+            <div class="assinaturas-box">
+                <div class="assinaturas-box-content">
+                    <div class="assinaturas-box-col">
+                        <div class="assinaturas-valor">${laudo.locatarioNome || ''}</div>
+                        <div class="assinaturas-label">Qualificação / Nome</div>
+                    </div>
+                    <div class="assinaturas-box-col">
+                        <div class="assinaturas-valor">${laudo.locatarioAssinatura || ''}</div>
+                        <div class="assinaturas-label">Assinatura</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TESTEMUNHAS -->
+        <div class="testemunhas-grid">
+            <div class="testemunha-item">
+                <div class="testemunha-linha">
+                    <strong>Nome:</strong>
+                    <span class="testemunha-valor">${laudo.testemunha1Nome || ''}</span>
+                </div>
+                <div class="testemunha-linha">
+                    <strong>RG:</strong>
+                    <span class="testemunha-valor">${laudo.testemunha1Rg || ''}</span>
+                </div>
+            </div>
+
+            <div class="testemunha-item">
+                <div class="testemunha-linha">
+                    <strong>Nome:</strong>
+                    <span class="testemunha-valor">${laudo.testemunha2Nome || ''}</span>
+                </div>
+                <div class="testemunha-linha">
+                    <strong>RG:</strong>
+                    <span class="testemunha-valor">${laudo.testemunha2Rg || ''}</span>
+                </div>
+            </div>
+        </div>
+      </div>
     `;
   }
 
@@ -433,6 +526,26 @@ export class PdfService {
             font-size: 10px;
             color: #555;
         }
+
+        /* ASSINATURAS */
+        .assinaturas-titulo { font-size: 14px; font-weight: 700; text-transform: uppercase; border-bottom: 1px solid #c0c0c0; padding-bottom: 4px; margin-bottom: 20px; }
+        .assinaturas-texto { font-size: 11px; line-height: 1.6; text-align: justify; margin-bottom: 40px; }
+        .assinaturas-data { text-align: center; font-size: 12px; margin-bottom: 60px; }
+        
+        .assinaturas-box-wrapper { position: relative; width: 100%; margin-bottom: 40px; break-inside: avoid; }
+        .assinaturas-box { display: flex; flex-direction: column; width: 100%; border: 1px solid #000; height: 120px; }
+        .assinaturas-box-header { font-size: 11px; margin-bottom: 2px; text-transform: uppercase; position: absolute; top: -15px; left: 0; background: #fff; padding-right: 5px; z-index: 10; font-weight: 700; line-height: 1; }
+        .assinaturas-box-content { display: flex; height: 100%; }
+        .assinaturas-box-col { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; padding: 10px; position: relative; }
+        .assinaturas-box-col:first-child { border-right: 1px solid #000; }
+        .assinaturas-label { border-top: 1px solid #000; padding-top: 2px; font-size: 10px; width: 100%; }
+        .assinaturas-valor { font-family: "Roboto", sans-serif; font-size: 10px; text-align: center; margin-bottom: 5px; min-height: 15px; }
+
+        .testemunhas-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 20px; break-inside: avoid; }
+        .testemunha-item { display: flex; flex-direction: column; gap: 5px; }
+        .testemunha-linha { display: flex; align-items: baseline; border-bottom: 1px solid #000; font-size: 11px; padding-bottom: 2px; }
+        .testemunha-linha strong { margin-right: 5px; min-width: 40px; }
+        .testemunha-valor { font-family: "Roboto", sans-serif; font-size: 11px; }
      `;
   }
 

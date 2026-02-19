@@ -138,6 +138,30 @@ export class Laudo {
   @Column({ type: 'jsonb', nullable: true })
   mobilias: object; // {fixa: string, nao_fixa: string}
 
+  @Column({ name: 'locador_nome', type: 'varchar', length: 200, nullable: true })
+  locadorNome: string;
+
+  @Column({ name: 'locador_assinatura', type: 'text', nullable: true })
+  locadorAssinatura: string;
+
+  @Column({ name: 'locatario_nome', type: 'varchar', length: 200, nullable: true })
+  locatarioNome: string;
+
+  @Column({ name: 'locatario_assinatura', type: 'text', nullable: true })
+  locatarioAssinatura: string;
+
+  @Column({ name: 'testemunha1_nome', type: 'varchar', length: 200, nullable: true })
+  testemunha1Nome: string;
+
+  @Column({ name: 'testemunha1_rg', type: 'varchar', length: 20, nullable: true })
+  testemunha1Rg: string;
+
+  @Column({ name: 'testemunha2_nome', type: 'varchar', length: 200, nullable: true })
+  testemunha2Nome: string;
+
+  @Column({ name: 'testemunha2_rg', type: 'varchar', length: 20, nullable: true })
+  testemunha2Rg: string;
+
   @Column({ name: 'dados_extra', type: 'jsonb', nullable: true })
   dadosExtra: object; // { [sectionName]: { [question]: answer } }
 

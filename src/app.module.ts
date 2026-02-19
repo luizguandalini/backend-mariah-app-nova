@@ -43,9 +43,10 @@ import { Usuario } from './users/entities/usuario.entity';
         const dbUsername = getConfig('DB_USERNAME');
         const dbPassword = getConfig('DB_PASSWORD');
         const dbDatabase = getConfig('DB_DATABASE');
+        const dbSynchronize = getConfig('DB_SYNCHRONIZE') === 'true' || (!isProduction && getConfig('DB_SYNCHRONIZE') === '');
 
         // Log da configuração (sem dados sensíveis)
-        console.log(`📊 Banco de dados: ${dbHost}:${dbPort} (${isProduction ? 'PRODUÇÃO' : 'DESENVOLVIMENTO'})`);
+        console.log(`📊 Banco de dados: ${dbHost}:${dbPort} (${isProduction ? 'PRODUÇÃO' : 'DESENVOLVIMENTO'}) - Sync: ${dbSynchronize}`);
 
         return {
           type: 'postgres',
@@ -55,8 +56,8 @@ import { Usuario } from './users/entities/usuario.entity';
           password: dbPassword,
           database: dbDatabase,
           entities: [__dirname + '/**/*.entity{.ts,.js}'],
-          // NUNCA true em produção!
-          synchronize: !isProduction,
+          // NUNCA true em produção sem intenção!
+          synchronize: dbSynchronize,
           // Em prod, só loga erros; em dev, loga tudo
           logging: isProduction ? ['error'] : true,
           ssl: {
