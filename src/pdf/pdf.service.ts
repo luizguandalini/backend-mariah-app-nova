@@ -409,6 +409,12 @@ export class PdfService {
         .download-fotos-content { display: flex; align-items: flex-start; gap: 20px; }
         .download-fotos-text { flex: 1; font-size: 11px; line-height: 1.6; text-align: justify; color: #000; }
         .download-fotos-qrcode img { width: 100px; height: 100px; display: block; }
+
+        /* ENCERRAMENTO */
+        .encerramento-section { margin-top: 20px; border-top: 2px solid #000; padding-top: 10px; }
+        .encerramento-titulo { font-size: 13px; font-weight: 700; text-transform: uppercase; margin-bottom: 10px; }
+        .encerramento-text { font-size: 11px; line-height: 1.6; text-align: justify; color: #000; margin: 0 0 10px 0; }
+        .encerramento-fechamento { font-size: 11px; color: #000; margin: 0; }
         
         .avoid-break { page-break-inside: avoid; }
 
@@ -748,6 +754,15 @@ export class PdfService {
                         <img src="${qrCodeDataUrl}" alt="QR Code Galeria" />
                     </div>
                 </div>
+            </div>
+
+            <div class="encerramento-section">
+                <div class="encerramento-titulo">ENCERRAMENTO</div>
+                <p class="encerramento-text">
+                    Encerra o presente termo, a empresa PROMOVE VISTORIAS, inscrita no CNPJ 40.249.900/0001-91,
+                    sediada na Rua Orense, 41, Sala 1106 - Centro - Diadema, representada pelo vistoriador
+                    certificado e responsável técnico, o qual certifica e dá fé dos registros apresentados.
+                </p>
             </div>
          </div>
       `;
