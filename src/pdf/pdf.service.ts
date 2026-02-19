@@ -12,6 +12,7 @@ import * as path from 'path';
 import { LaudoSection } from '../laudo-details/entities/laudo-section.entity';
 import { LaudoOption } from '../laudo-details/entities/laudo-option.entity';
 import { UsersService } from '../users/users.service';
+import * as QRCode from 'qrcode';
 
 @Injectable()
 export class PdfService {
@@ -92,7 +93,7 @@ export class PdfService {
       // Progresso 60% -> Renderizar HTML
       this.updateStatus(laudoId, 'PROCESSING', 60);
       
-      const htmlContent = this.buildHtml(laudo, imagensProcessadas, ambientes, sections, config);
+      const htmlContent = await this.buildHtml(laudo, imagensProcessadas, ambientes, sections, config);
 
       // Progresso 80% -> Gerar PDF
       this.updateStatus(laudoId, 'PROCESSING', 80);
@@ -271,12 +272,12 @@ export class PdfService {
 
   // --- HTML BUILDERS ---
 
-  private buildHtml(laudo: Laudo, imagens: any[], ambientes: any[], sections: LaudoSection[], config: any): string {
+  private async buildHtml(laudo: Laudo, imagens: any[], ambientes: any[], sections: LaudoSection[], config: any): Promise<string> {
     const css = this.getCss(config);
     const cover = this.getCoverHtml(laudo);
     const infoPage = this.getInfoPageHtml(laudo, ambientes);
     const photos = this.getPhotosHtml(imagens, laudo);
-    const report = this.getReportHtml(laudo, sections);
+    const report = await this.getReportHtml(laudo, sections);
 
     return `
       <!DOCTYPE html>
@@ -401,6 +402,13 @@ export class PdfService {
         }
         .item-label { font-weight: 500; color: #000; }
         .item-valor { font-weight: 700; text-transform: uppercase; text-align: right; max-width: 50%; }
+
+        /* DOWNLOAD DE FOTOS */
+        .download-fotos-section { margin-top: 24px; border-top: 2px solid #000; padding-top: 10px; }
+        .download-fotos-titulo { font-size: 13px; font-weight: 700; text-transform: uppercase; margin-bottom: 10px; }
+        .download-fotos-content { display: flex; align-items: flex-start; gap: 20px; }
+        .download-fotos-text { flex: 1; font-size: 11px; line-height: 1.6; text-align: justify; color: #000; }
+        .download-fotos-qrcode img { width: 100px; height: 100px; display: block; }
         
         .avoid-break { page-break-inside: avoid; }
 
@@ -592,7 +600,7 @@ export class PdfService {
       return html;
   }
 
-  private getReportHtml(laudo: Laudo, sections: LaudoSection[] = []): string {
+  private async getReportHtml(laudo: Laudo, sections: LaudoSection[] = []): Promise<string> {
       // 1. Normalização de Mapeamento (Igual ao Frontend)
       // 1. Normalização de Mapeamento (Igual ao Frontend - chaves sem espaços)
       const SECTION_FIELD_MAP: Record<string, { dataKey: string; fields?: string[] }> = {
@@ -707,6 +715,12 @@ export class PdfService {
           `).join('');
       };
 
+      const frontendUrl = process.env[`${process.env.NODE_ENV === 'production' ? 'PROD' : 'DEV'}_FRONTEND_URL`]
+          || process.env.FRONTEND_URL
+          || 'http://localhost:5173';
+      const galeriaUrl = `${frontendUrl}/dashboard/laudos/${laudo.id}/galeria`;
+      const qrCodeDataUrl = await QRCode.toDataURL(galeriaUrl, { width: 100, margin: 1 });
+
       return `
          <div class="page-container page-standard">
             <div style="height: 35px;"></div>
@@ -718,6 +732,21 @@ export class PdfService {
                 </div>
                 <div class="relatorio-coluna">
                     ${renderColumn(col2)}
+                </div>
+            </div>
+
+            <div class="download-fotos-section">
+                <div class="download-fotos-titulo">DOWNLOAD DE FOTOS</div>
+                <div class="download-fotos-content">
+                    <p class="download-fotos-text">
+                        Para maior conveniência e acessibilidade, as fotos poderão ser baixadas diretamente através do
+                        QR Code fornecido neste documento. Ressaltamos que as imagens obtidas são adequadas para outras
+                        análises e avaliações, independentemente do que estiver registrado em texto neste laudo. Esta
+                        abordagem garante uma verificação visual completa e transparente das condições do imóvel.
+                    </p>
+                    <div class="download-fotos-qrcode">
+                        <img src="${qrCodeDataUrl}" alt="QR Code Galeria" />
+                    </div>
                 </div>
             </div>
          </div>
