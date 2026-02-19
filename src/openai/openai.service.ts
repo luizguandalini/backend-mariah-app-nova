@@ -46,6 +46,7 @@ export class OpenAIService implements OnModuleInit {
   private apiKey: string | null = null;
   private model: string = 'gpt-4o';
   private maxTokens: number = 150;
+  private temperature: number = 0.3;
   private rateLimitRpm: number = 20;
   private rateLimitDelayMs: number = 3000;
   private lastRequestTime: number = 0;
@@ -188,6 +189,7 @@ export class OpenAIService implements OnModuleInit {
         body: JSON.stringify({
           model: this.model,
           max_tokens: this.maxTokens,
+          temperature: 0.3,
           messages: [
             {
               role: 'user',
