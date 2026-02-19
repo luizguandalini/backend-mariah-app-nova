@@ -411,10 +411,16 @@ export class PdfService {
         .download-fotos-qrcode img { width: 100px; height: 100px; display: block; }
 
         /* ENCERRAMENTO */
-        .encerramento-section { margin-top: 20px; border-top: 2px solid #000; padding-top: 10px; }
-        .encerramento-titulo { font-size: 13px; font-weight: 700; text-transform: uppercase; margin-bottom: 10px; }
-        .encerramento-text { font-size: 11px; line-height: 1.6; text-align: justify; color: #000; margin: 0 0 10px 0; }
-        .encerramento-fechamento { font-size: 11px; color: #000; margin: 0; }
+        .encerramento-section { margin-top: 20px; padding-top: 0; }
+        .encerramento-titulo { font-size: 13px; font-weight: 700; text-transform: uppercase; margin: 0 0 4px 0; }
+        .encerramento-divisor { border: none; border-top: 2px solid #000; margin: 0 0 10px 0; }
+        .encerramento-text { font-size: 11px; line-height: 1.6; text-align: justify; color: #000; margin: 0 0 8px 0; }
+        .encerramento-fechamento { font-size: 11px; color: #000; margin: 0 0 20px 0; }
+        .encerramento-rodape { position: absolute; bottom: 15mm; left: 20mm; right: 20mm; display: flex; align-items: flex-end; justify-content: space-between; }
+        .encerramento-responsavel { font-size: 10px; font-weight: 700; line-height: 1.6; color: #000; }
+        .encerramento-logo-bloco { display: flex; flex-direction: column; align-items: center; width: 170px; }
+        .encerramento-logo-bloco img { width: 100%; height: auto; display: block; margin-bottom: 4px; }
+        .encerramento-logo-nome { font-size: 9px; font-weight: 700; text-transform: uppercase; text-align: center; color: #000; width: 100%; letter-spacing: 0.5px; }
         
         .avoid-break { page-break-inside: avoid; }
 
@@ -721,6 +727,9 @@ export class PdfService {
           `).join('');
       };
 
+      const logoImagePath = path.join(process.cwd(), 'promove-vistorias-imobiliarias.png');
+      const logoBase64 = `data:image/png;base64,${fs.readFileSync(logoImagePath).toString('base64')}`;
+
       const frontendUrl = process.env[`${process.env.NODE_ENV === 'production' ? 'PROD' : 'DEV'}_FRONTEND_URL`]
           || process.env.FRONTEND_URL
           || 'http://localhost:5173';
@@ -758,11 +767,23 @@ export class PdfService {
 
             <div class="encerramento-section">
                 <div class="encerramento-titulo">ENCERRAMENTO</div>
+                <hr class="encerramento-divisor" />
                 <p class="encerramento-text">
                     Encerra o presente termo, a empresa PROMOVE VISTORIAS, inscrita no CNPJ 40.249.900/0001-91,
                     sediada na Rua Orense, 41, Sala 1106 - Centro - Diadema, representada pelo vistoriador
                     certificado e responsável técnico, o qual certifica e dá fé dos registros apresentados.
                 </p>
+                <p class="encerramento-fechamento">Cordialmente,</p>
+                <div class="encerramento-rodape">
+                    <div class="encerramento-responsavel">
+                        Responsável Técnico<br/>
+                        Renato Saavedra Gomes - CERT 30535050
+                    </div>
+                    <div class="encerramento-logo-bloco">
+                        <img src="${logoBase64}" alt="Promove Vistorias" />
+                        <div class="encerramento-logo-nome">PROMOVE VISTORIAS IMOBILIÁRIAS</div>
+                    </div>
+                </div>
             </div>
          </div>
       `;
