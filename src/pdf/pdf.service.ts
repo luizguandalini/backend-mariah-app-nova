@@ -620,7 +620,6 @@ export class PdfService {
   }
 
   private async getReportHtml(laudo: Laudo, sections: LaudoSection[] = []): Promise<string> {
-      // 1. Normalização de Mapeamento (Igual ao Frontend)
       // 1. Normalização de Mapeamento (Igual ao Frontend - chaves sem espaços)
       const SECTION_FIELD_MAP: Record<string, { dataKey: string; fields?: string[] }> = {
             "atestadodavistoria": { dataKey: "atestado" },
@@ -638,6 +637,16 @@ export class PdfService {
       const details = laudo as any; // Cast para acessar indices dinâmicos
       this.logger.log(`Generating report for Laudo ${laudo.id}. Details keys: ${Object.keys(details)}`);
       
+      // Mapeamento de IDs para textos (para evitar UUIDs em labels extras)
+      const questionIdToText = new Map<string, string>();
+      sections.forEach(s => {
+          s.questions?.forEach(q => {
+              if (q.id && q.questionText) {
+                  questionIdToText.set(q.id, q.questionText);
+              }
+          });
+      });
+
       // Lista de seções para processar (com interface flexível)
       const finalSections: any[] = sections.map(s => ({ ...s, questions: s.questions || [] }));
       
@@ -646,9 +655,14 @@ export class PdfService {
           try {
              const extras = typeof laudo.dadosExtra === 'string' ? JSON.parse(laudo.dadosExtra) : laudo.dadosExtra;
              Object.keys(extras).forEach(key => {
-                 // Verificar se já existe (normalizando)
-                 const exists = finalSections.some(s => s.name.toLowerCase().includes(key.toLowerCase()));
-                 if (!exists) {
+                 const normalizedKey = normalizeSectionName(key);
+                 
+                 // Verificar se já existe (usando normalização idêntica ao front)
+                 // Também checa se a chave do dadosExtra corresponde a algum dataKey oficial
+                 const isOfficial = finalSections.some(s => normalizeSectionName(s.name) === normalizedKey) || 
+                                  Object.values(SECTION_FIELD_MAP).some(m => m.dataKey === key);
+
+                 if (!isOfficial) {
                      // Criar fake section
                      const newSec: any = {
                         name: key,
@@ -658,7 +672,9 @@ export class PdfService {
                      
                      if (typeof extras[key] === 'object') {
                          Object.keys(extras[key]).forEach(k => {
-                            newSec.questions.push({ questionText: k } as any);
+                            // Se a chave for um UUID, tenta buscar o texto original da questão
+                            const questionText = questionIdToText.get(k) || k;
+                            newSec.questions.push({ id: k, questionText: questionText } as any);
                          });
                      } else {
                          newSec.questions.push({ questionText: 'Descrição' } as any);
