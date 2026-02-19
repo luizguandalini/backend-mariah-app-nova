@@ -162,6 +162,9 @@ export class Laudo {
   @Column({ name: 'testemunha2_rg', type: 'varchar', length: 20, nullable: true })
   testemunha2Rg: string;
 
+  @Column({ name: 'data_relatorio', type: 'varchar', length: 100, nullable: true })
+  dataRelatorio: string;
+
   @Column({ name: 'dados_extra', type: 'jsonb', nullable: true })
   dadosExtra: object; // { [sectionName]: { [question]: answer } }
 

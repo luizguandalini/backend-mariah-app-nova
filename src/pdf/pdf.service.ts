@@ -314,12 +314,16 @@ export class PdfService {
   }
 
   private getSignaturesHtml(laudo: Laudo): string {
-    const dataFull = laudo.dataVistoria ? new Date(laudo.dataVistoria) : (laudo.createdAt ? new Date(laudo.createdAt) : new Date());
+    const dataRef = laudo.dataVistoria || laudo.createdAt || new Date();
+    const dataFull = new Date(dataRef);
     const dia = dataFull.getDate().toString().padStart(2, '0');
     const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
     const mes = meses[dataFull.getMonth()];
     const ano = dataFull.getFullYear();
-    const cidade = laudo.cidade || 'São Paulo';
+    const dataExibicao = laudo.dataRelatorio || `${dia} de ${mes} de ${ano}`;
+    
+    const cidadeDb = laudo.cidade || '';
+    const cidade = (cidadeDb === '' || cidadeDb.toUpperCase() === 'SP') ? 'São Paulo' : cidadeDb;
 
     return `
       <div class="page-container page-standard">
@@ -338,7 +342,7 @@ export class PdfService {
         </p>
 
         <div class="assinaturas-data">
-          ${cidade}, ${dia} de ${mes} de ${ano}
+          ${cidade}, ${dataExibicao}
         </div>
 
         <!-- LOCADOR -->

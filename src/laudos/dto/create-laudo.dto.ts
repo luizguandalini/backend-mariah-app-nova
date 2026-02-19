@@ -194,6 +194,11 @@ export class CreateLaudoDto {
   @IsOptional()
   testemunha2Rg?: string;
 
+  @ApiPropertyOptional({ description: 'Data do relatório' })
+  @IsString()
+  @IsOptional()
+  dataRelatorio?: string;
+
   @ApiPropertyOptional({ description: 'Dados extras de seções dinâmicas (JSON)' })
   @IsObject()
   @IsOptional()
