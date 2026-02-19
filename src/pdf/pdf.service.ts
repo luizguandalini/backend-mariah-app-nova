@@ -453,15 +453,22 @@ export class PdfService {
         "Os registros encontrados como irregularidades ou avarias são indicados neste laudo de vistoria pela menção da palavra \"APONTAMENTO\"."
       ];
 
-      const tipoUso = (laudo.tipoUso || 'Industrial').toLowerCase();
+      const tipoUso = (laudo.tipoUso || '').toLowerCase();
       const tipo = (laudo.tipoImovel || laudo.tipo || '').toLowerCase();
-      const unidade = laudo.numero || '';
+      const unidade = laudo.unidade || laudo.numero || '';
       const tamanho = laudo.tamanho || '';
       const tipoVistoria = (laudo.tipoVistoria || '').toLowerCase();
       const endereco = laudo.endereco || '';
       const cep = laudo.cep || '';
-      // No front, o campo "Realizada em:" está vazio (<p></p>), então vamos deixar vazio aqui também para ser identico.
-      const dataRealizacao = ''; 
+      
+      let dataRealizacao = '';
+      if (laudo.dataVistoria) {
+          const date = new Date(laudo.dataVistoria);
+          dataRealizacao = date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+      } else if (laudo.createdAt) {
+          const date = new Date(laudo.createdAt);
+          dataRealizacao = date.toLocaleDateString('pt-BR');
+      } 
       
       const isSaida = tipoVistoria === 'saída' || tipoVistoria === 'saida';
       const textosMetodologia = isSaida ? METODOLOGIA_SAIDA_TEXTS : METODOLOGIA_TEXTS;

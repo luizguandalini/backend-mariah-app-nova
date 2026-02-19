@@ -66,19 +66,19 @@ export class Laudo {
   cep: string;
 
   // Classificação
-  @Column({ name: 'tipo_vistoria', type: 'varchar', length: 20, nullable: true })
+  @Column({ name: 'tipo_vistoria', type: 'varchar', length: 50, nullable: true })
   tipoVistoria: string; // 'ENTRADA' | 'SAIDA'
 
-  @Column({ name: 'tipo_uso', type: 'varchar', length: 20, nullable: true })
+  @Column({ name: 'tipo_uso', type: 'varchar', length: 200, nullable: true })
   tipoUso: string; // 'RESIDENCIAL' | 'COMERCIAL' | 'INDUSTRIAL'
 
-  @Column({ name: 'tipo_imovel', type: 'varchar', length: 100, nullable: true })
+  @Column({ name: 'tipo_imovel', type: 'varchar', length: 200, nullable: true })
   tipoImovel: string;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'varchar', length: 200, nullable: true })
   tipo: string; // Mantido para compatibilidade
 
-  @Column({ type: 'varchar', length: 50, nullable: true })
+  @Column({ type: 'varchar', length: 200, nullable: true })
   unidade: string;
 
   @Column({
@@ -88,8 +88,11 @@ export class Laudo {
   })
   status: StatusLaudo;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'varchar', length: 200, nullable: true })
   tamanho: string;
+
+  @Column({ name: 'data_vistoria', type: 'timestamp', nullable: true })
+  dataVistoria: Date;
 
   @Column({ name: 'pdf_url', type: 'text', nullable: true })
   pdfUrl: string;

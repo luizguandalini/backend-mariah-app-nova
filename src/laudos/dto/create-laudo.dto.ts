@@ -93,6 +93,10 @@ export class CreateLaudoDto {
   @IsOptional()
   totalFotos?: number;
 
+  @ApiPropertyOptional({ description: 'Data da vistoria' })
+  @IsOptional()
+  dataVistoria?: Date;
+
   // Geolocalização
   @ApiPropertyOptional({ description: 'Latitude GPS' })
   @IsNumber()
