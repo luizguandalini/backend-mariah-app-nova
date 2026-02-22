@@ -24,12 +24,12 @@ export class WebLoginTicket {
   @Column({ name: 'usuario_id' })
   usuarioId: string;
 
-  @ManyToOne(() => Laudo, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Laudo, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'laudo_id' })
-  laudo: Laudo;
+  laudo: Laudo | null;
 
-  @Column({ name: 'laudo_id' })
-  laudoId: string;
+  @Column({ name: 'laudo_id', nullable: true })
+  laudoId: string | null;
 
   @Column({ type: 'timestamptz' })
   expiresAt: Date;

@@ -57,7 +57,9 @@ export class AuthService {
   async register(createUsuarioDto: CreateUsuarioDto) {
     // Bloqueia criação de usuário DEV via API
     if (createUsuarioDto.role === UserRole.DEV) {
-      throw new UnauthorizedException('Não é permitido criar usuário DEV. O usuário DEV é criado automaticamente.');
+      throw new UnauthorizedException(
+        'Não é permitido criar usuário DEV. O usuário DEV é criado automaticamente.',
+      );
     }
 
     const usuarioExistente = await this.usuarioRepository.findOne({
@@ -121,43 +123,40 @@ export class AuthService {
     }
 
     // Revoga o refresh token antigo (rotação de tokens)
-    await this.refreshTokenRepository.update(
-      { id: refreshToken.id },
-      { revoked: true },
-    );
+    await this.refreshTokenRepository.update({ id: refreshToken.id }, { revoked: true });
 
     // Gera novos tokens
     return this.generateTokens(usuario);
   }
 
-  async createWebLoginTicket(usuario: Usuario, laudoId: string) {
-    const laudo = await this.laudoRepository.findOne({
-      where: { id: laudoId },
-      relations: ['usuario'],
-    });
+  async createWebLoginTicket(usuario: Usuario, laudoId?: string) {
+    let laudo: Laudo | null = null;
+    if (laudoId) {
+      laudo = await this.laudoRepository.findOne({
+        where: { id: laudoId },
+        relations: ['usuario'],
+      });
 
-    if (!laudo) {
-      throw new NotFoundException('Laudo não encontrado');
-    }
+      if (!laudo) {
+        throw new NotFoundException('Laudo não encontrado');
+      }
 
-    const isOwner = laudo.usuario?.id === usuario.id;
-    const isAdminOrDev =
-      usuario.role === UserRole.ADMIN || usuario.role === UserRole.DEV;
+      const isOwner = laudo.usuario?.id === usuario.id;
+      const isAdminOrDev = usuario.role === UserRole.ADMIN || usuario.role === UserRole.DEV;
 
-    if (!isOwner && !isAdminOrDev) {
-      throw new UnauthorizedException('Você não tem permissão para este laudo');
+      if (!isOwner && !isAdminOrDev) {
+        throw new UnauthorizedException('Você não tem permissão para este laudo');
+      }
     }
 
     const token = this.generateSecureToken();
     const expiresAt = new Date();
-    expiresAt.setMinutes(
-      expiresAt.getMinutes() + this.WEB_LOGIN_TICKET_EXPIRY_MINUTES,
-    );
+    expiresAt.setMinutes(expiresAt.getMinutes() + this.WEB_LOGIN_TICKET_EXPIRY_MINUTES);
 
     const ticket = this.webLoginTicketRepository.create({
       token,
       usuarioId: usuario.id,
-      laudoId: laudo.id,
+      laudoId: laudo ? laudo.id : null,
       expiresAt,
     });
 
@@ -191,12 +190,15 @@ export class AuthService {
       throw new UnauthorizedException('Usuário inativo ou não encontrado');
     }
 
-    const laudo = await this.laudoRepository.findOne({
-      where: { id: ticket.laudoId },
-    });
+    let laudo: Laudo | null = null;
+    if (ticket.laudoId) {
+      laudo = await this.laudoRepository.findOne({
+        where: { id: ticket.laudoId },
+      });
 
-    if (!laudo) {
-      throw new NotFoundException('Laudo não encontrado');
+      if (!laudo) {
+        throw new NotFoundException('Laudo não encontrado');
+      }
     }
 
     ticket.usedAt = new Date();
@@ -206,7 +208,7 @@ export class AuthService {
 
     return {
       ...tokens,
-      laudoId: laudo.id,
+      laudoId: laudo ? laudo.id : null,
     };
   }
 
@@ -229,10 +231,7 @@ export class AuthService {
    * Revoga todos os refresh tokens de um usuário (logout de todos os dispositivos)
    */
   async revokeAllUserRefreshTokens(usuarioId: string): Promise<void> {
-    await this.refreshTokenRepository.update(
-      { usuarioId, revoked: false },
-      { revoked: true },
-    );
+    await this.refreshTokenRepository.update({ usuarioId, revoked: false }, { revoked: true });
   }
 
   /**
