@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
@@ -7,19 +7,26 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { Usuario } from '../users/entities/usuario.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
+import { WebLoginTicket } from './entities/web-login-ticket.entity';
 import { LoginDto } from './dto/login.dto';
 import { CreateUsuarioDto } from '../users/dto/create-usuario.dto';
 import { UserRole } from '../users/enums/user-role.enum';
+import { Laudo } from '../laudos/entities/laudo.entity';
 
 @Injectable()
 export class AuthService {
   private readonly REFRESH_TOKEN_EXPIRY_DAYS = 30;
+  private readonly WEB_LOGIN_TICKET_EXPIRY_MINUTES = 5;
 
   constructor(
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepository: Repository<RefreshToken>,
+    @InjectRepository(WebLoginTicket)
+    private readonly webLoginTicketRepository: Repository<WebLoginTicket>,
+    @InjectRepository(Laudo)
+    private readonly laudoRepository: Repository<Laudo>,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
   ) {}
@@ -121,6 +128,86 @@ export class AuthService {
 
     // Gera novos tokens
     return this.generateTokens(usuario);
+  }
+
+  async createWebLoginTicket(usuario: Usuario, laudoId: string) {
+    const laudo = await this.laudoRepository.findOne({
+      where: { id: laudoId },
+      relations: ['usuario'],
+    });
+
+    if (!laudo) {
+      throw new NotFoundException('Laudo não encontrado');
+    }
+
+    const isOwner = laudo.usuario?.id === usuario.id;
+    const isAdminOrDev =
+      usuario.role === UserRole.ADMIN || usuario.role === UserRole.DEV;
+
+    if (!isOwner && !isAdminOrDev) {
+      throw new UnauthorizedException('Você não tem permissão para este laudo');
+    }
+
+    const token = this.generateSecureToken();
+    const expiresAt = new Date();
+    expiresAt.setMinutes(
+      expiresAt.getMinutes() + this.WEB_LOGIN_TICKET_EXPIRY_MINUTES,
+    );
+
+    const ticket = this.webLoginTicketRepository.create({
+      token,
+      usuarioId: usuario.id,
+      laudoId: laudo.id,
+      expiresAt,
+    });
+
+    await this.webLoginTicketRepository.save(ticket);
+
+    return {
+      ticket: token,
+      expiresAt,
+    };
+  }
+
+  async exchangeWebLoginTicket(ticketToken: string) {
+    const ticket = await this.webLoginTicketRepository.findOne({
+      where: { token: ticketToken },
+    });
+
+    if (!ticket || ticket.usedAt) {
+      throw new UnauthorizedException('Ticket inválido');
+    }
+
+    if (ticket.expiresAt < new Date()) {
+      throw new UnauthorizedException('Ticket expirado');
+    }
+
+    const usuario = await this.usuarioRepository.findOne({
+      where: { id: ticket.usuarioId },
+      select: ['id', 'email', 'nome', 'role', 'quantidadeImagens', 'ativo'],
+    });
+
+    if (!usuario || !usuario.ativo) {
+      throw new UnauthorizedException('Usuário inativo ou não encontrado');
+    }
+
+    const laudo = await this.laudoRepository.findOne({
+      where: { id: ticket.laudoId },
+    });
+
+    if (!laudo) {
+      throw new NotFoundException('Laudo não encontrado');
+    }
+
+    ticket.usedAt = new Date();
+    await this.webLoginTicketRepository.save(ticket);
+
+    const tokens = await this.generateTokens(usuario);
+
+    return {
+      ...tokens,
+      laudoId: laudo.id,
+    };
   }
 
   /**

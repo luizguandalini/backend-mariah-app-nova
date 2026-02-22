@@ -8,10 +8,12 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { Usuario } from '../users/entities/usuario.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
+import { WebLoginTicket } from './entities/web-login-ticket.entity';
+import { Laudo } from '../laudos/entities/laudo.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Usuario, RefreshToken]),
+    TypeOrmModule.forFeature([Usuario, RefreshToken, WebLoginTicket, Laudo]),
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

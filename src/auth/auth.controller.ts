@@ -1,9 +1,13 @@
-import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { Controller, Post, Body, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { CreateUsuarioDto } from '../users/dto/create-usuario.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { CreateWebLoginTicketDto, ExchangeWebLoginTicketDto } from './dto/web-login-ticket.dto';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { CurrentUser } from './decorators/current-user.decorator';
+import { Usuario } from '../users/entities/usuario.entity';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -44,5 +48,26 @@ export class AuthController {
   async revoke(@Body() refreshTokenDto: RefreshTokenDto) {
     await this.authService.revokeRefreshToken(refreshTokenDto.refresh_token);
     return { message: 'Token revogado com sucesso' };
+  }
+
+  @Post('web-login-ticket')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Gerar ticket temporário para login web' })
+  @ApiResponse({ status: 200, description: 'Ticket gerado com sucesso' })
+  async createWebLoginTicket(
+    @CurrentUser() user: Usuario,
+    @Body() body: CreateWebLoginTicketDto,
+  ) {
+    return await this.authService.createWebLoginTicket(user, body.laudoId);
+  }
+
+  @Post('web-login-ticket/exchange')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Trocar ticket por tokens de autenticação' })
+  @ApiResponse({ status: 200, description: 'Tokens retornados com sucesso' })
+  async exchangeWebLoginTicket(@Body() body: ExchangeWebLoginTicketDto) {
+    return await this.authService.exchangeWebLoginTicket(body.ticket);
   }
 }
