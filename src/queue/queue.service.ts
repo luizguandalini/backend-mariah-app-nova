@@ -23,6 +23,7 @@ import { SystemConfig } from '../config/entities/system-config.entity';
 import { In } from 'typeorm';
 import { QueueGateway } from './queue.gateway';
 import { SystemConfigService } from '../config/config.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 export interface QueueItemResponse {
   id: string;
@@ -73,6 +74,7 @@ export class QueueService implements OnModuleInit {
     private readonly uploadsService: UploadsService,
     private readonly queueGateway: QueueGateway,
     private readonly systemConfigService: SystemConfigService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async onModuleInit() {
@@ -356,6 +358,27 @@ export class QueueService implements OnModuleInit {
     }
   }
 
+  private async notifyLaudoConcluido(laudoId: string): Promise<void> {
+    const laudo = await this.laudoRepository.findOne({
+      where: { id: laudoId },
+      select: ['id', 'usuarioId', 'endereco', 'pushNotifiedAt'],
+    });
+
+    if (!laudo || laudo.pushNotifiedAt) return;
+
+    const endereco = laudo.endereco ? ` - ${laudo.endereco}` : '';
+    const sent = await this.notificationsService.sendToUser(
+      laudo.usuarioId,
+      'Laudo concluído',
+      `Seu laudo foi finalizado${endereco}`,
+      { laudoId },
+    );
+
+    if (sent) {
+      await this.laudoRepository.update(laudoId, { pushNotifiedAt: new Date() });
+    }
+  }
+
   /**
    * Processa um laudo específico (chamado pelo consumer RabbitMQ)
    */
@@ -408,6 +431,7 @@ export class QueueService implements OnModuleInit {
 
           this.logger.log(`Laudo ${laudoId} análise concluída!`);
           this.queueGateway.notifyStatusChange(laudoId, AnalysisStatus.COMPLETED);
+          await this.notifyLaudoConcluido(laudoId);
           return;
         }
 
@@ -518,6 +542,7 @@ export class QueueService implements OnModuleInit {
 
         this.logger.log(`Laudo ${currentItem.laudoId} análise concluída!`);
         this.queueGateway.notifyStatusChange(currentItem.laudoId, AnalysisStatus.COMPLETED);
+        await this.notifyLaudoConcluido(currentItem.laudoId);
          
          // Enviar progresso 100% final
         this.queueGateway.notifyProgress(currentItem.laudoId, {

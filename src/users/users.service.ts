@@ -214,4 +214,10 @@ export class UsersService {
 
     return await this.configuracaoPdfRepository.save(config);
   }
+
+  async updatePushToken(usuarioId: string, expoPushToken?: string): Promise<Usuario> {
+    const usuario = await this.findOne(usuarioId);
+    usuario.expoPushToken = expoPushToken || null;
+    return await this.usuarioRepository.save(usuario);
+  }
 }

@@ -189,6 +189,13 @@ export class Laudo {
   })
   pdfProgress: number;
 
+  @Column({
+    name: 'push_notified_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  pushNotifiedAt: Date;
+
   @UpdateDateColumn({
     name: 'updated_at',
     type: 'timestamptz',

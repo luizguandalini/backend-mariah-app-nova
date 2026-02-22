@@ -14,6 +14,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@ne
 import { UsersService } from './users.service';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { UpdateConfiguracoesPdfDto } from './dto/update-configuracoes-pdf.dto';
+import { UpdatePushTokenDto } from './dto/update-push-token.dto';
 import { Usuario } from './entities/usuario.entity';
 import { ConfiguracaoPdfUsuario } from './entities/configuracao-pdf-usuario.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -121,6 +122,16 @@ export class UsersController {
   @ApiResponse({ status: 200, description: 'Configurações retornadas com sucesso' })
   async getConfiguracoesPdf(@CurrentUser() user: any): Promise<ConfiguracaoPdfUsuario> {
     return await this.usersService.getConfiguracoesPdf(user.id);
+  }
+
+  @Put('push-token')
+  @ApiOperation({ summary: 'Atualizar token de push do usuário' })
+  @ApiResponse({ status: 200, description: 'Token atualizado com sucesso' })
+  async updatePushToken(
+    @CurrentUser() user: any,
+    @Body() updateDto: UpdatePushTokenDto,
+  ): Promise<Usuario> {
+    return await this.usersService.updatePushToken(user.id, updateDto.expoPushToken);
   }
 
   @Put('configuracoes-pdf')

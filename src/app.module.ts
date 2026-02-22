@@ -16,6 +16,7 @@ import { PdfModule } from './pdf/pdf.module';
 import { SystemConfigModule } from './config/config.module';
 import { DatabaseSeedService } from './database/database-seed.service';
 import { Usuario } from './users/entities/usuario.entity';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -79,6 +80,7 @@ import { Usuario } from './users/entities/usuario.entity';
     QueueModule,
     PdfModule,
     SystemConfigModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService, DatabaseSeedService],

@@ -28,6 +28,9 @@ export class Usuario {
   @Column({ type: 'boolean', default: true })
   ativo: boolean;
 
+  @Column({ name: 'expo_push_token', type: 'varchar', length: 255, nullable: true })
+  expoPushToken: string;
+
   @CreateDateColumn({ 
     name: 'created_at',
     type: 'timestamptz',

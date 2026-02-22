@@ -14,6 +14,7 @@ import { UploadsModule } from '../uploads/uploads.module';
 import { QueueGateway } from './queue.gateway';
 import { LaudosModule } from '../laudos/laudos.module';
 import { SystemConfigModule } from '../config/config.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { SystemConfigModule } from '../config/config.module';
     UploadsModule,
     forwardRef(() => LaudosModule),
     SystemConfigModule,
+    NotificationsModule,
   ],
   controllers: [QueueController],
   providers: [QueueService, RabbitMQService, QueueGateway],
