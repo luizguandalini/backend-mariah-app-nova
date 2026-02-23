@@ -55,6 +55,8 @@ export class QueueService implements OnModuleInit {
   private readonly logger = new Logger(QueueService.name);
   private isProcessing = false;
   private processingInterval: NodeJS.Timeout | null = null;
+  private readonly metadataRetryDelayMs = 3000;
+  private readonly metadataMaxWaitMs = 120000;
 
   constructor(
     @InjectRepository(AnalysisQueue)
@@ -449,7 +451,13 @@ export class QueueService implements OnModuleInit {
         await this.queueRepository.save(queueItem);
 
         // Processar imagem
-        await this.processImage(nextImage, queueItem);
+        const processed = await this.processImage(nextImage, queueItem);
+        if (!processed) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, this.metadataRetryDelayMs),
+          );
+          continue;
+        }
 
         // Atualizar progresso
         queueItem.processedImages += 1;
@@ -564,7 +572,11 @@ export class QueueService implements OnModuleInit {
       await this.queueRepository.save(currentItem);
 
       // Processar imagem
-      await this.processImage(nextImage, currentItem);
+      const processed = await this.processImage(nextImage, currentItem);
+      if (!processed) {
+        setTimeout(() => this.processNextInQueue(), this.metadataRetryDelayMs);
+        return;
+      }
 
       // Atualizar progresso
        currentItem.processedImages += 1;
@@ -604,7 +616,7 @@ export class QueueService implements OnModuleInit {
   private async processImage(
     imagem: ImagemLaudo,
     queueItem: AnalysisQueue,
-  ): Promise<void> {
+  ): Promise<boolean> {
     // Verificar se foi cancelado
     const currentStatus = await this.queueRepository.findOne({
       where: { id: queueItem.id },
@@ -621,19 +633,33 @@ export class QueueService implements OnModuleInit {
     const tipoItem = imagem.tipo;
 
     if (!tipoAmbiente || !tipoItem) {
-      // Sem tipo definido - marcar como analisado sem legenda útil
+      const createdAtMs = imagem.createdAt
+        ? new Date(imagem.createdAt).getTime()
+        : Date.now();
+      const ageMs = Date.now() - createdAtMs;
+      if (ageMs < this.metadataMaxWaitMs) {
+        this.logAnalysis({
+          ambiente: imagem.ambiente || 'N/A',
+          item: tipoItem || 'N/A',
+          filho: null,
+          promptEnviado: '(metadados pendentes)',
+          resposta: 'Aguardando metadados do EXIF',
+          sucesso: false,
+        });
+        return false;
+      }
       this.logAnalysis({
-        ambiente: 'N/A',
-        item: 'N/A',
+        ambiente: imagem.ambiente || 'N/A',
+        item: tipoItem || 'N/A',
         filho: null,
-        promptEnviado: '(tipo não identificado)',
-        resposta: 'Tipo não identificado',
+        promptEnviado: '(metadados ausentes)',
+        resposta: 'Metadados não encontrados',
         sucesso: false,
       });
-      imagem.legenda = 'Tipo não identificado';
+      imagem.legenda = 'Metadados não encontrados';
       imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
       await this.imagemRepository.save(imagem);
-      return;
+      return true;
     }
 
     // Buscar ambiente pelo nome (normalizado)
@@ -652,7 +678,7 @@ export class QueueService implements OnModuleInit {
       imagem.legenda = `Ambiente "${tipoAmbiente}" não encontrado`;
       imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
       await this.imagemRepository.save(imagem);
-      return;
+      return true;
     }
 
     // Buscar item pelo nome (normalizado)
@@ -674,7 +700,7 @@ export class QueueService implements OnModuleInit {
       imagem.legenda = `Item "${tipoItem}" não encontrado`;
       imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
       await this.imagemRepository.save(imagem);
-      return;
+      return true;
     }
 
     // Gerar URL da imagem (pré-assinada)
@@ -720,7 +746,7 @@ export class QueueService implements OnModuleInit {
         imagem.legenda = 'Erro ao analisar imagem';
         imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
         await this.imagemRepository.save(imagem);
-        return;
+        return true;
       }
 
       // Tentar identificar qual filho corresponde
@@ -744,7 +770,7 @@ export class QueueService implements OnModuleInit {
         imagem.legenda = 'Não identificado';
         imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
         await this.imagemRepository.save(imagem);
-        return;
+        return true;
       }
 
       // Buscar prompt do filho
@@ -753,7 +779,7 @@ export class QueueService implements OnModuleInit {
         imagem.legenda = 'Não identificado';
         imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
         await this.imagemRepository.save(imagem);
-        return;
+        return true;
       }
 
       // SEGUNDA ETAPA: análise com prompt do filho
@@ -863,6 +889,7 @@ export class QueueService implements OnModuleInit {
 
     await this.imagemRepository.save(imagem);
     this.logger.debug(`Imagem ${imagem.id} analisada: ${imagem.legenda}`);
+    return true;
   }
 
   /**
