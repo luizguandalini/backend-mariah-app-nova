@@ -808,8 +808,8 @@ export class PdfService {
           const mapping = SECTION_FIELD_MAP[normalizedKey];
           
           // Identificar a chave de dados (ex: analisesHidraulicas, dadosExtra, etc)
-          let dataKey = mapping?.dataKey || normalizedKey;
-          let fieldKey = mapping?.fields?.[index];
+          const dataKey = mapping?.dataKey || normalizedKey;
+          const fieldKey = mapping?.fields?.[index];
 
           // Buscar o objeto de dados da seção
           let sectionData = details[dataKey];

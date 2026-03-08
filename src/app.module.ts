@@ -17,6 +17,7 @@ import { SystemConfigModule } from './config/config.module';
 import { DatabaseSeedService } from './database/database-seed.service';
 import { Usuario } from './users/entities/usuario.entity';
 import { NotificationsModule } from './notifications/notifications.module';
+import { KanbanModule } from './kanban/kanban.module';
 
 @Module({
   imports: [
@@ -81,6 +82,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     PdfModule,
     SystemConfigModule,
     NotificationsModule,
+    KanbanModule,
   ],
   controllers: [AppController],
   providers: [AppService, DatabaseSeedService],
