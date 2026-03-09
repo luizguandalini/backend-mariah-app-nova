@@ -493,12 +493,14 @@ export class PdfService {
             margin-bottom: 2px; font-size: 11px; text-transform: uppercase; 
         }
         .item-row { 
-            display: flex; align-items: center; justify-content: space-between; 
+            display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
             background-color: #d9d9d9; 
             padding: 5px 10px; margin-bottom: 2px; font-size: 11px; 
         }
-        .item-label { font-weight: 500; color: #000; }
-        .item-valor { font-weight: 700; text-transform: uppercase; text-align: right; max-width: 50%; }
+        .item-label { font-weight: 500; color: #000; flex: 1; min-width: 0; line-height: 1.3; }
+        .item-valor { font-weight: 700; font-size: 10px; text-align: right; max-width: 45%; min-width: 92px; text-transform: lowercase; line-height: 1.3; overflow-wrap: anywhere; }
+        .item-valor-sem-irregularidades { color: #15803d; }
+        .item-valor-com-apontamento { color: #dc2626; }
 
         /* DOWNLOAD DE FOTOS */
         .download-fotos-section { margin-top: 24px; border-top: 2px solid #000; padding-top: 10px; }
@@ -802,7 +804,29 @@ export class PdfService {
           } catch(e) {}
       }
 
-      // Render Item Helper - IDENTICO ao frontend renderItemDinamico
+      const normalizeRespostaStatus = (value: unknown) =>
+          String(value ?? '')
+            .toLowerCase()
+            .trim()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/\s+/g, ' ');
+
+      const getRespostaStatusClass = (value: unknown) => {
+          const normalized = normalizeRespostaStatus(value);
+          if (normalized === 'sem irregularidades') return 'item-valor item-valor-sem-irregularidades';
+          if (normalized === 'com apontamento' || normalized === 'com irregularidades') return 'item-valor item-valor-com-apontamento';
+          return 'item-valor';
+      };
+
+      const formatRespostaStatus = (value: unknown) => {
+          const normalized = normalizeRespostaStatus(value);
+          if (normalized === 'sem irregularidades') return 'sem irregularidades';
+          if (normalized === 'com apontamento' || normalized === 'com irregularidades') return 'com apontamento';
+          if (normalized === 'outros') return 'outros';
+          return String(value).toLowerCase();
+      };
+
       const renderItem = (sectionName: string, questionText: string, questionId: string, index: number) => {
           const normalizedKey = normalizeSectionName(sectionName);
           const mapping = SECTION_FIELD_MAP[normalizedKey];
@@ -845,10 +869,12 @@ export class PdfService {
           if (value === null || value === undefined || value === '') value = '-';
           if (typeof value === 'object') value = JSON.stringify(value);
 
+          const displayValue = formatRespostaStatus(value);
+
           return `
             <div class="item-row">
                 <span class="item-label">${questionText}</span>
-                <span class="item-valor">${String(value)}</span>
+                <span class="${getRespostaStatusClass(value)}">${displayValue}</span>
             </div>
           `;
       };
