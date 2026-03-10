@@ -14,6 +14,39 @@ import { LaudoOption } from '../laudo-details/entities/laudo-option.entity';
 import { UsersService } from '../users/users.service';
 import * as QRCode from 'qrcode';
 
+const METODOLOGIA_TEXTS = [
+  'Este documento tem como objetivo garantir às partes da locação o registro do estado de entrega do imóvel, integrando-se como anexo ao contrato formado. Ele concilia as obrigações contratuais e serve como referência para a aferição de eventuais alterações no imóvel ao longo do período de uso.',
+  'O laudo de vistoria foi elaborado de maneira técnica por um especialista qualificado, que examinou critérios específicos para avaliar todos os aspectos relevantes, desde apontamentos estruturais aparentes até pequenos detalhes construtivos e acessórios presentes no imóvel. O objetivo foi registrar, de forma clara e objetiva, por meio de textos e imagens, qualquer apontamento ou irregularidade, garantindo uma abordagem sistemática, imparcial e organizada em ordem cronológica, com separação por ambientes e legendas contidas e numerações sequenciais.',
+  'O documento inclui fotos de todas as paredes, pisos, tetos, portas, janelas e demais elementos que compõem o imóvel e suas instalações. As imagens foram capturadas com angulação precisa, permitindo análises previstas do estado de conservação atual do imóvel e verificações futuras. Fica reservado o direito, a qualquer tempo, das partes identificadas, por meio das imagens, qualquer ponto que não tenha sido especificado por escrito.',
+  'Os registros identificados como irregularidades ou avarias estão destacados neste laudo sob a denominação "APONTAMENTOS" e podem ser facilmente localizados utilizando o recurso de busca por palavras.',
+  'Este laudo não emprega termos subjetivos, como "bom", "regular" ou "ótimo" estado, nas análises. A descrição foi construída de forma objetiva, baseada exclusivamente em fatos observáveis, com o objetivo de evitar interpretações divergentes que possam surgir de perspectivas pessoais e garantir que as informações registradas sejam precisas e imparciais.',
+  'Os elementos adicionais ao imóvel, como acessórios, eletrodomésticos, equipamentos de arcondicionado, dispositivos em geral, lustres ou luminárias, mobília não embutida, entre outros, serão identificados no laudo pela denominação "ITEM".',
+];
+
+const METODOLOGIA_SAIDA_TEXTS = [
+  'Este documento traz como condições de devolução do imóvel, o qual será utilizado para averiguação comparativa com a vistoria de entrada, a fim de constatar possíveis divergências que possam ter surgido no decorrer da locação.',
+  'Caberá às partes utilizar as análises apresentadas neste laudo como base comparativa com o laudo anterior, considerando o grau de relevância dos apontamentos, a atribuição de responsabilidade e a necessidade de reparo imediato dos danos causados pela locatária durante o período de uso. Conforme estabelece o art. 23, inciso III, da Lei nº 8.245/91, cabe ao locatário a restituição do imóvel no mesmo estado em que o recebeu, de acordo com o laudo de vistoria inicial. Deve-se analisar, em especial, equipamentos elétricos, quadros de distribuição de energia, instalações hidráulicas e elétricas, sistemas de ar condicionado, sistemas de aquecimento em geral ou danos decorrentes do mau uso, tais como: danos ao encanamento provocados pelo descarte de objetos em ralos e vasos sanitários, conservação de móveis, eletrodomésticos ou bens de razão estrutural, como portas, janelas, esquadrias, pias, armários, entre outros.',
+  'O método utilizado na vistoria consiste em uma análise meticulosa, baseando-se em procedimentos técnicos para avaliar todos os aspectos relevantes, desde apontamentos estruturais visíveis até pequenos detalhes construtivos e acessórios presentes no imóvel. Todos os aspectos são registrados de forma clara e objetiva, por textos e imagens, incluindo qualquer apontamento ou irregularidade aparente, salvo vício oculto. A abordagem é imparcial, e as fotos de cada ambiente trazem todos os ângulos necessários, como paredes, pisos, tetos, portas e janelas, entre outros que compõem o imóvel e suas instalações. As imagens são agrupadas e numeradas por ambiente, de modo que, mesmo na ausência de texto descrevendo algum apontamento, poderão ser identificadas por meio da interpretação dos registros fotográficos.',
+  'Os registros encontrados como irregularidades ou avarias são indicados neste laudo de vistoria pela menção da palavra "APONTAMENTO".',
+];
+
+const TERMOS_GERAIS_TEXTS = [
+  'É obrigação do locatário o reparo imediato dos danos causados por si mesmo ou por terceiros durante a vigência do contrato de locação, cabendo ao locatário restituir o imóvel no mesmo estado em que o recebeu, de acordo com este laudo de vistoria, comprometendo-se com o zelo e promovendo a manutenção preventiva do mesmo e de seus equipamentos porventura existentes, em especial, equipamentos elétricos, quadros de distribuição de energia, instalações hidráulicas, elétricas, sistemas de ar, sistema de aquecimento em geral ou danos decorrentes do mau uso, tais como: danos ao encanamento provocados pelo descarte de objetos em ralos, em vasos sanitários, conservação dos móveis ou de bens de razão estrutural, como portas, janelas, esquadrias, pias, gabinetes, entre outros.',
+  'O locatário será isento de responsabilidade quanto aos desgastes naturais decorrentes do uso normal e zeloso do imóvel, desde que tais condições sejam compatíveis com o período de locação e não decorram de negligência, mau uso ou ausência de manutenção regular. Eventuais danos que ultrapassem o desgaste esperado ou sejam causados por uso inadequado serão de responsabilidade do locatário, firmando compromisso do uso zeloso pelo período em que se der início a locação até a efetiva devolução das chaves.',
+];
+
+const ASSINATURA_TEXTO =
+  'Declaram as partes estarem cientes das imagens e textos apresentados no presente termo, estando em conformidade com a vontade dos contratantes que, "As Partes e as testemunhas envolvidas neste instrumento afirmam e declaram que esse poderá ser assinado presencialmente ou eletronicamente, sendo as assinaturas consideradas válidas, vinculantes e executáveis, desde que firmadas pelos representantes legais das Partes. e pôr estarem justos e contratados, assinam o presente, para um só efeito, diante de 02 (duas) testemunhas.';
+
+type PdfConfig = {
+  margemPagina: number;
+  espacamentoHorizontal: number;
+  espacamentoVertical: number;
+  metodologiaTexto?: string | null;
+  termosGeraisTexto?: string | null;
+  assinaturaTexto?: string | null;
+};
+
 @Injectable()
 export class PdfService {
   private readonly logger = new Logger(PdfService.name);
@@ -42,13 +75,13 @@ export class PdfService {
       this.logger.log(`🚀 Iniciando geração de PDF para laudo ${laudoId}`);
 
       // 1. Buscar Dados do Laudo
-      const laudo = await this.laudoRepository.findOne({ 
+      const laudo = await this.laudoRepository.findOne({
         where: { id: laudoId },
         relations: ['usuario'],
       });
-      
+
       if (!laudo) throw new Error('Laudo não encontrado');
-      
+
       // Capturar URL antiga para deleção posterior
       const oldPdfUrl = laudo.pdfUrl;
       this.logger.log(`📋 PDF antigo encontrado: ${oldPdfUrl ? 'SIM' : 'NÃO'}`);
@@ -64,15 +97,15 @@ export class PdfService {
 
       // 3. Derivar Ambientes das Imagens
       const ambientesSet = new Set<string>();
-      // Manter a ordem de aparecimento ou alfabética? 
+      // Manter a ordem de aparecimento ou alfabética?
       // O front parece usar ordem de inserção/retorno da API.
       // Vamos usar ordem de aparecimento nas fotos (que estão por ordem).
-      imagens.forEach(img => {
-          if (img.ambiente) ambientesSet.add(img.ambiente);
+      imagens.forEach((img) => {
+        if (img.ambiente) ambientesSet.add(img.ambiente);
       });
-      const ambientes = Array.from(ambientesSet).map((nome, index) => ({ 
-          nome, 
-          originalIndex: index + 1 
+      const ambientes = Array.from(ambientesSet).map((nome, index) => ({
+        nome,
+        originalIndex: index + 1,
       }));
 
       // 4. Buscar Seções para o Relatório
@@ -89,11 +122,17 @@ export class PdfService {
       // Progresso 10% -> Processar Imagens
       this.updateStatus(laudoId, 'PROCESSING', 10);
       const imagensProcessadas = await this.processImagesForPdf(imagens, laudoId);
-      
+
       // Progresso 60% -> Renderizar HTML
       this.updateStatus(laudoId, 'PROCESSING', 60);
-      
-      const htmlContent = await this.buildHtml(laudo, imagensProcessadas, ambientes, sections, config);
+
+      const htmlContent = await this.buildHtml(
+        laudo,
+        imagensProcessadas,
+        ambientes,
+        sections,
+        config,
+      );
 
       // Progresso 80% -> Gerar PDF
       this.updateStatus(laudoId, 'PROCESSING', 80);
@@ -106,35 +145,35 @@ export class PdfService {
 
       // Se sucesso, deletar antigo se existir
       if (oldPdfUrl) {
-          this.logger.log(`🔍 Tentando deletar PDF antigo...`);
-          try {
-             // Extrair key da URL. Assumindo URL assinada ou pública padrão S3.
-             // Ex: https://bucket.s3.region.amazonaws.com/laudos/pdf/xxx.pdf?signature...
-             // Ou só a parte do path se for cloudfront.
-             // O jeito mais seguro é tentar extrair a parte depois do dominio.
-             // Mas como guardamos 'laudos/pdf/...' como key no upload, podemos tentar extrair isso.
-             
-             // WORKAROUND: O `uploadPdfBuffer` retorna uma URL assinada completa.
-             // O `laudo.pdfUrl` tem essa URL.
-             // A chave S3 está embutida na URL. 
-             // Padrão S3 Key: laudos/pdf/{id}_{timestamp}.pdf
-             
-             // Regex simples para pegar a key
-             const match = oldPdfUrl.match(/(laudos\/pdf\/[^?]+)/);
-             this.logger.log(`🔍 Regex match result: ${JSON.stringify(match)}`);
-             if (match && match[1]) {
-                 const oldKey = match[1];
-                 this.logger.log(`🗑️ Removendo PDF antigo: ${oldKey}`);
-                 await this.uploadsService.deleteFile(oldKey);
-                 this.logger.log(`✅ PDF antigo deletado com sucesso: ${oldKey}`);
-             } else {
-                 this.logger.warn(`⚠️ Não foi possível extrair chave S3 da URL: ${oldPdfUrl}`);
-             }
-          } catch(err) {
-              this.logger.warn('❌ Falha ao tentar remover PDF antigo', err);
+        this.logger.log(`🔍 Tentando deletar PDF antigo...`);
+        try {
+          // Extrair key da URL. Assumindo URL assinada ou pública padrão S3.
+          // Ex: https://bucket.s3.region.amazonaws.com/laudos/pdf/xxx.pdf?signature...
+          // Ou só a parte do path se for cloudfront.
+          // O jeito mais seguro é tentar extrair a parte depois do dominio.
+          // Mas como guardamos 'laudos/pdf/...' como key no upload, podemos tentar extrair isso.
+
+          // WORKAROUND: O `uploadPdfBuffer` retorna uma URL assinada completa.
+          // O `laudo.pdfUrl` tem essa URL.
+          // A chave S3 está embutida na URL.
+          // Padrão S3 Key: laudos/pdf/{id}_{timestamp}.pdf
+
+          // Regex simples para pegar a key
+          const match = oldPdfUrl.match(/(laudos\/pdf\/[^?]+)/);
+          this.logger.log(`🔍 Regex match result: ${JSON.stringify(match)}`);
+          if (match && match[1]) {
+            const oldKey = match[1];
+            this.logger.log(`🗑️ Removendo PDF antigo: ${oldKey}`);
+            await this.uploadsService.deleteFile(oldKey);
+            this.logger.log(`✅ PDF antigo deletado com sucesso: ${oldKey}`);
+          } else {
+            this.logger.warn(`⚠️ Não foi possível extrair chave S3 da URL: ${oldPdfUrl}`);
           }
+        } catch (err) {
+          this.logger.warn('❌ Falha ao tentar remover PDF antigo', err);
+        }
       } else {
-          this.logger.log(`ℹ️ Nenhum PDF antigo para deletar (primeiro PDF deste laudo)`);
+        this.logger.log(`ℹ️ Nenhum PDF antigo para deletar (primeiro PDF deste laudo)`);
       }
 
       // Finalizar
@@ -143,44 +182,46 @@ export class PdfService {
         pdfProgress: 100,
         pdfUrl: publicUrl,
       });
-      
+
       this.queueGateway.notifyPdfProgress(laudoId, {
-         laudoId,
-         status: 'COMPLETED',
-         progress: 100,
-         url: publicUrl,
+        laudoId,
+        status: 'COMPLETED',
+        progress: 100,
+        url: publicUrl,
       });
 
       return publicUrl;
     } catch (error) {
       this.logger.error(`❌ Erro gerando PDF laudo ${laudoId}:`, error);
-      
+
       await this.laudoRepository.update(laudoId, {
         pdfStatus: 'ERROR',
         pdfProgress: 0,
       });
-      
+
       this.queueGateway.notifyPdfProgress(laudoId, {
-         laudoId,
-         status: 'ERROR',
-         progress: 0,
-         error: error.message,
+        laudoId,
+        status: 'ERROR',
+        progress: 0,
+        error: error.message,
       });
-      
+
       throw error;
     }
   }
 
   private updateStatus(laudoId: string, status: string, progress: number) {
-    this.laudoRepository.update(laudoId, {
+    this.laudoRepository
+      .update(laudoId, {
         pdfStatus: status,
         pdfProgress: progress,
-    }).catch(err => this.logger.error('Erro ao atualizar status PDF DB', err));
+      })
+      .catch((err) => this.logger.error('Erro ao atualizar status PDF DB', err));
 
     this.queueGateway.notifyPdfProgress(laudoId, {
-        laudoId,
-        status,
-        progress
+      laudoId,
+      status,
+      progress,
     });
   }
 
@@ -188,35 +229,37 @@ export class PdfService {
     const total = imagens.length;
     const processed = [];
     const BATCH_SIZE = 5;
-    
+
     // 1. Obter URLs assinadas
     for (let i = 0; i < total; i += BATCH_SIZE) {
-        const batch = imagens.slice(i, i + BATCH_SIZE);
-        const results = await Promise.all(batch.map(async (img) => {
-            try {
-                const url = await this.uploadsService.getSignedUrlForAi(img.s3Key);
-                return { ...img, publicUrl: url };
-            } catch (e) {
-                this.logger.error(`Erro processando imagem ${img.id}`, e);
-                return null;
-            }
-        }));
-        processed.push(...results.filter(r => r !== null));
-        
-        const loopPercent = (i + batch.length) / total;
-        const totalProgress = 10 + Math.round(loopPercent * 50); 
-        this.updateStatus(laudoId, 'PROCESSING', totalProgress);
+      const batch = imagens.slice(i, i + BATCH_SIZE);
+      const results = await Promise.all(
+        batch.map(async (img) => {
+          try {
+            const url = await this.uploadsService.getSignedUrlForAi(img.s3Key);
+            return { ...img, publicUrl: url };
+          } catch (e) {
+            this.logger.error(`Erro processando imagem ${img.id}`, e);
+            return null;
+          }
+        }),
+      );
+      processed.push(...results.filter((r) => r !== null));
+
+      const loopPercent = (i + batch.length) / total;
+      const totalProgress = 10 + Math.round(loopPercent * 50);
+      this.updateStatus(laudoId, 'PROCESSING', totalProgress);
     }
 
     // 2. Calcular números (numeroAmbiente e numeroImagemNoAmbiente)
     // Agrupar por ambiente para saber a ordem
     const ambientesMap = new Map<string, any[]>();
-    processed.forEach(img => {
-        const amb = img.ambiente || 'AMBIENTE';
-        if (!ambientesMap.has(amb)) {
-            ambientesMap.set(amb, []);
-        }
-        ambientesMap.get(amb).push(img);
+    processed.forEach((img) => {
+      const amb = img.ambiente || 'AMBIENTE';
+      if (!ambientesMap.has(amb)) {
+        ambientesMap.set(amb, []);
+      }
+      ambientesMap.get(amb).push(img);
     });
 
     // Atribuir números
@@ -226,45 +269,45 @@ export class PdfService {
     // Iterar na ordem que aparecem (preservando ordem original do array processed)
     // Para garantir ordem de ambientes, percorremos o map na ordem de inserção
     for (const [nomeAmbiente, imgsDoAmbiente] of ambientesMap.entries()) {
-         imgsDoAmbiente.forEach((img, index) => {
-             img.numeroAmbiente = ambienteIndex;
-             img.numeroImagemNoAmbiente = index + 1;
-             finalImages.push(img);
-         });
-         ambienteIndex++;
+      imgsDoAmbiente.forEach((img, index) => {
+        img.numeroAmbiente = ambienteIndex;
+        img.numeroImagemNoAmbiente = index + 1;
+        finalImages.push(img);
+      });
+      ambienteIndex++;
     }
 
-    // Reordenar finalImages para garantir que a ordem original do array seja respeitada se necessário, 
+    // Reordenar finalImages para garantir que a ordem original do array seja respeitada se necessário,
     // mas geralmente agrupado por ambiente é o desejado.
     // Se a ordem original for misturada (ambientes intercalados), essa logica agrupa.
     // O front parece agrupar. Vamos devolver agrupado.
-    
+
     return finalImages;
   }
 
   private async renderPdf(html: string): Promise<Buffer> {
     const browser = await puppeteer.launch({
-       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-       headless: true,
-       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     });
     const page = await browser.newPage();
     // Aumentar timeout para 60s (imagens pesadas)
-    await page.setDefaultNavigationTimeout(60000); 
-    
-    await page.setContent(html, { 
-        waitUntil: 'networkidle0',
-        timeout: 60000 
+    await page.setDefaultNavigationTimeout(60000);
+
+    await page.setContent(html, {
+      waitUntil: 'networkidle0',
+      timeout: 60000,
     });
-    
+
     await page.emulateMediaType('print');
     await page.evaluate(() => document.fonts.ready);
 
     const pdf = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: { top: '0px', bottom: '0px', left: '0px', right: '0px' },
-        timeout: 60000
+      format: 'A4',
+      printBackground: true,
+      margin: { top: '0px', bottom: '0px', left: '0px', right: '0px' },
+      timeout: 60000,
     });
     await browser.close();
     return Buffer.from(pdf);
@@ -272,13 +315,19 @@ export class PdfService {
 
   // --- HTML BUILDERS ---
 
-  private async buildHtml(laudo: Laudo, imagens: any[], ambientes: any[], sections: LaudoSection[], config: any): Promise<string> {
+  private async buildHtml(
+    laudo: Laudo,
+    imagens: any[],
+    ambientes: any[],
+    sections: LaudoSection[],
+    config: PdfConfig,
+  ): Promise<string> {
     const css = this.getCss(config);
-    const cover = this.getCoverHtml(laudo);
-    const infoPage = this.getInfoPageHtml(laudo, ambientes);
+    const cover = this.getCoverHtml(laudo, config);
+    const infoPage = this.getInfoPageHtml(laudo, ambientes, config);
     const photos = this.getPhotosHtml(imagens, laudo);
     const report = await this.getReportHtml(laudo, sections);
-    const signatures = this.getSignaturesHtml(laudo);
+    const signatures = this.getSignaturesHtml(laudo, config);
 
     return `
       <!DOCTYPE html>
@@ -313,17 +362,55 @@ export class PdfService {
     `;
   }
 
-  private getSignaturesHtml(laudo: Laudo): string {
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  private splitParagrafos(texto: string): string[] {
+    return texto
+      .split(/\n\s*\n/g)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  private getMetodologiaPadrao(tipoVistoria: string): string[] {
+    const normalized = (tipoVistoria || '').toLowerCase();
+    const isSaida = normalized === 'saída' || normalized === 'saida';
+    return isSaida ? METODOLOGIA_SAIDA_TEXTS : METODOLOGIA_TEXTS;
+  }
+
+  private getSignaturesHtml(laudo: Laudo, config: PdfConfig): string {
     const dataRef = laudo.dataVistoria || laudo.createdAt || new Date();
     const dataFull = new Date(dataRef);
     const dia = dataFull.getDate().toString().padStart(2, '0');
-    const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    const meses = [
+      'Janeiro',
+      'Fevereiro',
+      'Março',
+      'Abril',
+      'Maio',
+      'Junho',
+      'Julho',
+      'Agosto',
+      'Setembro',
+      'Outubro',
+      'Novembro',
+      'Dezembro',
+    ];
     const mes = meses[dataFull.getMonth()];
     const ano = dataFull.getFullYear();
     const dataExibicao = laudo.dataRelatorio || `${dia} de ${mes} de ${ano}`;
-    
+
     const cidadeDb = laudo.cidade || '';
-    const cidade = (cidadeDb === '' || cidadeDb.toUpperCase() === 'SP') ? 'São Paulo' : cidadeDb;
+    const cidade = cidadeDb === '' || cidadeDb.toUpperCase() === 'SP' ? 'São Paulo' : cidadeDb;
+
+    const assinaturaTexto = config.assinaturaTexto || ASSINATURA_TEXTO;
+    const assinaturaEscapada = this.escapeHtml(assinaturaTexto);
 
     return `
       <div class="page-container page-standard">
@@ -331,15 +418,7 @@ export class PdfService {
         
         <h2 class="assinaturas-titulo">ASSINATURAS</h2>
         
-        <p class="assinaturas-texto">
-          Declaram as partes estarem cientes das imagens e textos apresentados no presente
-          termo, estando em conformidade com a vontade dos contratantes que, "As Partes e as
-          testemunhas envolvidas neste instrumento afirmam e declaram que esse poderá ser
-          assinado presencialmente ou eletronicamente, sendo as assinaturas consideradas
-          válidas, vinculantes e executáveis, desde que firmadas pelos representantes legais das
-          Partes. e pôr estarem justos e contratados, assinam o presente, para um só efeito, diante
-          de 02 (duas) testemunhas.
-        </p>
+        <p class="assinaturas-texto">${assinaturaEscapada}</p>
 
         <div class="assinaturas-data">
           ${cidade}, ${dataExibicao}
@@ -407,8 +486,8 @@ export class PdfService {
     `;
   }
 
-  private getCss(config: any): string {
-     return `
+  private getCss(config: PdfConfig): string {
+    return `
         * { box-sizing: border-box; }
         
         body { 
@@ -555,44 +634,29 @@ export class PdfService {
      `;
   }
 
-  private getCoverHtml(laudo: Laudo): string {
-      const METODOLOGIA_TEXTS = [
-        "Este documento tem como objetivo garantir às partes da locação o registro do estado de entrega do imóvel, integrando-se como anexo ao contrato formado. Ele concilia as obrigações contratuais e serve como referência para a aferição de eventuais alterações no imóvel ao longo do período de uso.",
-        "O laudo de vistoria foi elaborado de maneira técnica por um especialista qualificado, que examinou critérios específicos para avaliar todos os aspectos relevantes, desde apontamentos estruturais aparentes até pequenos detalhes construtivos e acessórios presentes no imóvel. O objetivo foi registrar, de forma clara e objetiva, por meio de textos e imagens, qualquer apontamento ou irregularidade, garantindo uma abordagem sistemática, imparcial e organizada em ordem cronológica, com separação por ambientes e legendas contidas e numerações sequenciais.",
-        "O documento inclui fotos de todas as paredes, pisos, tetos, portas, janelas e demais elementos que compõem o imóvel e suas instalações. As imagens foram capturadas com angulação precisa, permitindo análises previstas do estado de conservação atual do imóvel e verificações futuras. Fica reservado o direito, a qualquer tempo, das partes identificadas, por meio das imagens, qualquer ponto que não tenha sido especificado por escrito.",
-        "Os registros identificados como irregularidades ou avarias estão destacados neste laudo sob a denominação \"APONTAMENTOS\" e podem ser facilmente localizados utilizando o recurso de busca por palavras.",
-        "Este laudo não emprega termos subjetivos, como \"bom\", \"regular\" ou \"ótimo\" estado, nas análises. A descrição foi construída de forma objetiva, baseada exclusivamente em fatos observáveis, com o objetivo de evitar interpretações divergentes que possam surgir de perspectivas pessoais e garantir que as informações registradas sejam precisas e imparciais.",
-        "Os elementos adicionais ao imóvel, como acessórios, eletrodomésticos, equipamentos de arcondicionado, dispositivos em geral, lustres ou luminárias, mobília não embutida, entre outros, serão identificados no laudo pela denominação \"ITEM\"."
-      ];
+  private getCoverHtml(laudo: Laudo, config: PdfConfig): string {
+    const tipoUso = (laudo.tipoUso || '').toLowerCase();
+    const tipo = (laudo.tipoImovel || laudo.tipo || '').toLowerCase();
+    const unidade = laudo.unidade || laudo.numero || '';
+    const tamanho = laudo.tamanho || '';
+    const tipoVistoria = (laudo.tipoVistoria || '').toLowerCase();
+    const endereco = laudo.endereco || '';
+    const cep = laudo.cep || '';
 
-      const METODOLOGIA_SAIDA_TEXTS = [
-        "Este documento traz como condições de devolução do imóvel, o qual será utilizado para averiguação comparativa com a vistoria de entrada, a fim de constatar possíveis divergências que possam ter surgido no decorrer da locação.",
-        "Caberá às partes utilizar as análises apresentadas neste laudo como base comparativa com o laudo anterior, considerando o grau de relevância dos apontamentos, a atribuição de responsabilidade e a necessidade de reparo imediato dos danos causados pela locatária durante o período de uso. Conforme estabelece o art. 23, inciso III, da Lei nº 8.245/91, cabe ao locatário a restituição do imóvel no mesmo estado em que o recebeu, de acordo com o laudo de vistoria inicial. Deve-se analisar, em especial, equipamentos elétricos, quadros de distribuição de energia, instalações hidráulicas e elétricas, sistemas de ar condicionado, sistemas de aquecimento em geral ou danos decorrentes do mau uso, tais como: danos ao encanamento provocados pelo descarte de objetos em ralos e vasos sanitários, conservação de móveis, eletrodomésticos ou bens de razão estrutural, como portas, janelas, esquadrias, pias, armários, entre outros.",
-        "O método utilizado na vistoria consiste em uma análise meticulosa, baseando-se em procedimentos técnicos para avaliar todos os aspectos relevantes, desde apontamentos estruturais visíveis até pequenos detalhes construtivos e acessórios presentes no imóvel. Todos os aspectos são registrados de forma clara e objetiva, por textos e imagens, incluindo qualquer apontamento ou irregularidade aparente, salvo vício oculto. A abordagem é imparcial, e as fotos de cada ambiente trazem todos os ângulos necessários, como paredes, pisos, tetos, portas e janelas, entre outros que compõem o imóvel e suas instalações. As imagens são agrupadas e numeradas por ambiente, de modo que, mesmo na ausência de texto descrevendo algum apontamento, poderão ser identificadas por meio da interpretação dos registros fotográficos.",
-        "Os registros encontrados como irregularidades ou avarias são indicados neste laudo de vistoria pela menção da palavra \"APONTAMENTO\"."
-      ];
+    let dataRealizacao = '';
+    if (laudo.dataVistoria) {
+      const date = new Date(laudo.dataVistoria);
+      dataRealizacao = date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+    } else if (laudo.createdAt) {
+      const date = new Date(laudo.createdAt);
+      dataRealizacao = date.toLocaleDateString('pt-BR');
+    }
 
-      const tipoUso = (laudo.tipoUso || '').toLowerCase();
-      const tipo = (laudo.tipoImovel || laudo.tipo || '').toLowerCase();
-      const unidade = laudo.unidade || laudo.numero || '';
-      const tamanho = laudo.tamanho || '';
-      const tipoVistoria = (laudo.tipoVistoria || '').toLowerCase();
-      const endereco = laudo.endereco || '';
-      const cep = laudo.cep || '';
-      
-      let dataRealizacao = '';
-      if (laudo.dataVistoria) {
-          const date = new Date(laudo.dataVistoria);
-          dataRealizacao = date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-      } else if (laudo.createdAt) {
-          const date = new Date(laudo.createdAt);
-          dataRealizacao = date.toLocaleDateString('pt-BR');
-      } 
-      
-      const isSaida = tipoVistoria === 'saída' || tipoVistoria === 'saida';
-      const textosMetodologia = isSaida ? METODOLOGIA_SAIDA_TEXTS : METODOLOGIA_TEXTS;
+    const textosMetodologia = config.metodologiaTexto
+      ? this.splitParagrafos(config.metodologiaTexto)
+      : this.getMetodologiaPadrao(tipoVistoria);
 
-      return `
+    return `
         <div class="page-container page-cover">
             <div style="height: 35px;"></div>
             
@@ -640,64 +704,57 @@ export class PdfService {
             
             <div class="div-metodologia">
                 <h1>METODOLOGIA</h1>
-                ${textosMetodologia.map(t => `<p>${t}</p>`).join('')}
+                ${textosMetodologia.map((t) => `<p>${this.escapeHtml(t)}</p>`).join('')}
             </div>
         </div>
       `;
   }
-  
-  private getInfoPageHtml(laudo: Laudo, ambientes: any[] = []): string {
-      // Organizar ambientes em 4 colunas (máx 18 itens por coluna)
-      const itemsPerColumn = 18;
-      const columns = [[], [], [], []];
-      
-      ambientes.forEach((amb, index) => {
-          const colIndex = Math.floor(index / itemsPerColumn);
-          if (colIndex < 4) {
-              columns[colIndex].push(amb);
-          }
-      });
-      
-      return `
+
+  private getInfoPageHtml(laudo: Laudo, ambientes: any[] = [], config: PdfConfig): string {
+    // Organizar ambientes em 4 colunas (máx 18 itens por coluna)
+    const itemsPerColumn = 18;
+    const columns = [[], [], [], []];
+
+    ambientes.forEach((amb, index) => {
+      const colIndex = Math.floor(index / itemsPerColumn);
+      if (colIndex < 4) {
+        columns[colIndex].push(amb);
+      }
+    });
+
+    const textosTermos = config.termosGeraisTexto
+      ? this.splitParagrafos(config.termosGeraisTexto)
+      : TERMOS_GERAIS_TEXTS;
+
+    return `
         <div class="page-container page-standard">
             <div style="height: 35px;"></div>
             
             <div class="termos-gerais">
                 <h2>Termos Gerais</h2>
-                <p>
-                    É obrigação do locatário o reparo imediato dos danos causados por si mesmo ou por
-                    terceiros durante a vigência do contrato de locação, cabendo ao locatário restituir o
-                    imóvel no mesmo estado em que o recebeu, de acordo com este laudo de vistoria,
-                    comprometendo-se com o zelo e promovendo a manutenção preventiva do mesmo e de
-                    seus equipamentos porventura existentes, em especial, equipamentos elétricos, quadros
-                    de distribuição de energia, instalações hidráulicas, elétricas, sistemas de ar, sistema de
-                    aquecimento em geral ou danos decorrentes do mau uso, tais como: danos ao
-                    encanamento provocados pelo descarte de objetos em ralos, em vasos sanitários,
-                    conservação dos móveis ou de bens de razão estrutural, como portas, janelas, esquadrias,
-                    pias, gabinetes, entre outros.
-                </p>
-                <p>
-                    O locatário será isento de responsabilidade quanto aos desgastes naturais decorrentes do
-                    uso normal e zeloso do imóvel, desde que tais condições sejam compatíveis com o
-                    período de locação e não decorram de negligência, mau uso ou ausência de manutenção
-                    regular. Eventuais danos que ultrapassem o desgaste esperado ou sejam causados por
-                    uso inadequado serão de responsabilidade do locatário, firmando compromisso do uso
-                    zeloso pelo período em que se der início a locação até a efetiva devolução das chaves.
-                </p>
+                ${textosTermos.map((texto) => `<p>${this.escapeHtml(texto)}</p>`).join('')}
             </div>
             
             <div class="ambientes-section">
                 <h2>Ambientes</h2>
                 <div class="ambientes-container">
-                    ${columns.map(col => `
+                    ${columns
+                      .map(
+                        (col) => `
                         <div class="ambiente-col">
-                            ${col.map((amb: any) => `
+                            ${col
+                              .map(
+                                (amb: any) => `
                                 <div class="ambiente-item">
                                     ${amb.originalIndex}. ${amb.nome.replace(/^\d+\s*-\s*/, '')}
                                 </div>
-                            `).join('')}
+                            `,
+                              )
+                              .join('')}
                         </div>
-                    `).join('')}
+                    `,
+                      )
+                      .join('')}
                 </div>
             </div>
         </div>
@@ -705,17 +762,21 @@ export class PdfService {
   }
 
   private getPhotosHtml(imagens: any[], laudo: Laudo): string {
-      const PHOTOS_PER_PAGE = 12; 
-      let html = '';
-      
-      for(let i=0; i<imagens.length; i+=PHOTOS_PER_PAGE) {
-          const pagePhotos = imagens.slice(i, i+PHOTOS_PER_PAGE);
-          
-          html += `
+    const PHOTOS_PER_PAGE = 12;
+    let html = '';
+
+    for (let i = 0; i < imagens.length; i += PHOTOS_PER_PAGE) {
+      const pagePhotos = imagens.slice(i, i + PHOTOS_PER_PAGE);
+
+      html += `
             <div class="page-container page-dynamic">
                 <div class="grid-fotos">
-                    ${pagePhotos.map(img => {
-                        const ambienteSemNumero = (img.ambiente || 'AMBIENTE').replace(/^\d+\s*-\s*/, '');
+                    ${pagePhotos
+                      .map((img) => {
+                        const ambienteSemNumero = (img.ambiente || 'AMBIENTE').replace(
+                          /^\d+\s*-\s*/,
+                          '',
+                        );
                         return `
                         <div class="foto-card">
                             <div class="foto-container">
@@ -726,183 +787,215 @@ export class PdfService {
                                 <strong>${img.numeroAmbiente} (${img.numeroImagemNoAmbiente})</strong> ${img.legenda || ''}
                             </div>
                         </div>
-                    `}).join('')}
+                    `;
+                      })
+                      .join('')}
                 </div>
             </div>
           `;
-          
-          if (i + PHOTOS_PER_PAGE < imagens.length) {
-              html += '<div class="page-break"></div>';
-          }
+
+      if (i + PHOTOS_PER_PAGE < imagens.length) {
+        html += '<div class="page-break"></div>';
       }
-      return html;
+    }
+    return html;
   }
 
   private async getReportHtml(laudo: Laudo, sections: LaudoSection[] = []): Promise<string> {
-      // 1. Normalização de Mapeamento (Igual ao Frontend - chaves sem espaços)
-      const SECTION_FIELD_MAP: Record<string, { dataKey: string; fields?: string[] }> = {
-            "atestadodavistoria": { dataKey: "atestado" },
-            "analiseshidraulicas": { dataKey: "analisesHidraulicas", fields: ["fluxo_agua", "vazamentos"] },
-            "analiseseletricas": { dataKey: "analisesEletricas", fields: ["funcionamento", "disjuntores"] },
-            "sistemadear": { dataKey: "sistemaAr", fields: ["ar_condicionado", "aquecimento"] },
-            "mecanismosdeabertura": { dataKey: "mecanismosAbertura", fields: ["portas", "macanetas", "janelas"] },
-            "revestimentos": { dataKey: "revestimentos", fields: ["tetos", "pisos", "bancadas"] },
-            "mobilias": { dataKey: "mobilias", fields: ["fixa", "nao_fixa"] },
-      };
+    // 1. Normalização de Mapeamento (Igual ao Frontend - chaves sem espaços)
+    const SECTION_FIELD_MAP: Record<string, { dataKey: string; fields?: string[] }> = {
+      atestadodavistoria: { dataKey: 'atestado' },
+      analiseshidraulicas: { dataKey: 'analisesHidraulicas', fields: ['fluxo_agua', 'vazamentos'] },
+      analiseseletricas: { dataKey: 'analisesEletricas', fields: ['funcionamento', 'disjuntores'] },
+      sistemadear: { dataKey: 'sistemaAr', fields: ['ar_condicionado', 'aquecimento'] },
+      mecanismosdeabertura: {
+        dataKey: 'mecanismosAbertura',
+        fields: ['portas', 'macanetas', 'janelas'],
+      },
+      revestimentos: { dataKey: 'revestimentos', fields: ['tetos', 'pisos', 'bancadas'] },
+      mobilias: { dataKey: 'mobilias', fields: ['fixa', 'nao_fixa'] },
+    };
 
-      // Normalização idêntica ao FRONTEND: remove acentos e TODOS os espaços
-      const normalizeSectionName = (name: string) => name.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "");
-      
-      const details = laudo as any; // Cast para acessar indices dinâmicos
-      this.logger.log(`Generating report for Laudo ${laudo.id}. Details keys: ${Object.keys(details)}`);
-      
-      // Mapeamento de IDs para textos (para evitar UUIDs em labels extras)
-      const questionIdToText = new Map<string, string>();
-      sections.forEach(s => {
-          s.questions?.forEach(q => {
-              if (q.id && q.questionText) {
-                  questionIdToText.set(q.id, q.questionText);
-              }
-          });
+    // Normalização idêntica ao FRONTEND: remove acentos e TODOS os espaços
+    const normalizeSectionName = (name: string) =>
+      name
+        .toLowerCase()
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, '');
+
+    const details = laudo as any; // Cast para acessar indices dinâmicos
+    this.logger.log(
+      `Generating report for Laudo ${laudo.id}. Details keys: ${Object.keys(details)}`,
+    );
+
+    // Mapeamento de IDs para textos (para evitar UUIDs em labels extras)
+    const questionIdToText = new Map<string, string>();
+    sections.forEach((s) => {
+      s.questions?.forEach((q) => {
+        if (q.id && q.questionText) {
+          questionIdToText.set(q.id, q.questionText);
+        }
       });
+    });
 
-      // Lista de seções para processar (com interface flexível)
-      const finalSections: any[] = sections.map(s => ({ ...s, questions: s.questions || [] }));
-      
-      // Adicionar Extras
-      if (laudo.dadosExtra) {
-          try {
-             const extras = typeof laudo.dadosExtra === 'string' ? JSON.parse(laudo.dadosExtra) : laudo.dadosExtra;
-             Object.keys(extras).forEach(key => {
-                 const normalizedKey = normalizeSectionName(key);
-                 
-                 // Verificar se já existe (usando normalização idêntica ao front)
-                 // Também checa se a chave do dadosExtra corresponde a algum dataKey oficial
-                 const isOfficial = finalSections.some(s => normalizeSectionName(s.name) === normalizedKey) || 
-                                  Object.values(SECTION_FIELD_MAP).some(m => m.dataKey === key);
+    // Lista de seções para processar (com interface flexível)
+    const finalSections: any[] = sections.map((s) => ({ ...s, questions: s.questions || [] }));
 
-                 if (!isOfficial) {
-                     // Criar fake section
-                     const newSec: any = {
-                        name: key,
-                        isExtra: true,
-                        questions: []
-                     };
-                     
-                     if (typeof extras[key] === 'object') {
-                         Object.keys(extras[key]).forEach(k => {
-                            // Se a chave for um UUID, tenta buscar o texto original da questão
-                            const questionText = questionIdToText.get(k) || k;
-                            newSec.questions.push({ id: k, questionText: questionText } as any);
-                         });
-                     } else {
-                         newSec.questions.push({ questionText: 'Descrição' } as any);
-                     }
-                     finalSections.push(newSec);
-                 }
-             });
-          } catch(e) {}
+    // Adicionar Extras
+    if (laudo.dadosExtra) {
+      try {
+        const extras =
+          typeof laudo.dadosExtra === 'string' ? JSON.parse(laudo.dadosExtra) : laudo.dadosExtra;
+        Object.keys(extras).forEach((key) => {
+          const normalizedKey = normalizeSectionName(key);
+
+          // Verificar se já existe (usando normalização idêntica ao front)
+          // Também checa se a chave do dadosExtra corresponde a algum dataKey oficial
+          const isOfficial =
+            finalSections.some((s) => normalizeSectionName(s.name) === normalizedKey) ||
+            Object.values(SECTION_FIELD_MAP).some((m) => m.dataKey === key);
+
+          if (!isOfficial) {
+            // Criar fake section
+            const newSec: any = {
+              name: key,
+              isExtra: true,
+              questions: [],
+            };
+
+            if (typeof extras[key] === 'object') {
+              Object.keys(extras[key]).forEach((k) => {
+                // Se a chave for um UUID, tenta buscar o texto original da questão
+                const questionText = questionIdToText.get(k) || k;
+                newSec.questions.push({ id: k, questionText: questionText } as any);
+              });
+            } else {
+              newSec.questions.push({ questionText: 'Descrição' } as any);
+            }
+            finalSections.push(newSec);
+          }
+        });
+      } catch (e) {}
+    }
+
+    const normalizeRespostaStatus = (value: unknown) =>
+      String(value ?? '')
+        .toLowerCase()
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ');
+
+    const getRespostaStatusClass = (value: unknown) => {
+      const normalized = normalizeRespostaStatus(value);
+      if (normalized === 'sem irregularidades') return 'item-valor item-valor-sem-irregularidades';
+      if (normalized === 'com apontamento' || normalized === 'com irregularidades')
+        return 'item-valor item-valor-com-apontamento';
+      return 'item-valor';
+    };
+
+    const formatRespostaStatus = (value: unknown) => {
+      const normalized = normalizeRespostaStatus(value);
+      if (normalized === 'sem irregularidades') return 'sem irregularidades';
+      if (normalized === 'com apontamento' || normalized === 'com irregularidades')
+        return 'com apontamento';
+      if (normalized === 'outros') return 'outros';
+      return String(value).toLowerCase();
+    };
+
+    const renderItem = (
+      sectionName: string,
+      questionText: string,
+      questionId: string,
+      index: number,
+    ) => {
+      const normalizedKey = normalizeSectionName(sectionName);
+      const mapping = SECTION_FIELD_MAP[normalizedKey];
+
+      // Identificar a chave de dados (ex: analisesHidraulicas, dadosExtra, etc)
+      const dataKey = mapping?.dataKey || normalizedKey;
+      const fieldKey = mapping?.fields?.[index];
+
+      // Buscar o objeto de dados da seção
+      let sectionData = details[dataKey];
+
+      // Fallback: tentar buscar em dadosExtra
+      // Importante: para seções órfãs, o nome da seção DEVE ser usado para buscar em dadosExtra
+      if (!sectionData && details.dadosExtra) {
+        const extra =
+          typeof details.dadosExtra === 'string'
+            ? JSON.parse(details.dadosExtra)
+            : details.dadosExtra;
+        // Tenta pelo nome exato ou normalizado
+        sectionData = extra[sectionName] || extra[normalizedKey];
       }
 
-      const normalizeRespostaStatus = (value: unknown) =>
-          String(value ?? '')
-            .toLowerCase()
-            .trim()
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .replace(/\s+/g, ' ');
+      // Parsing se for string JSON
+      if (typeof sectionData === 'string' && sectionData.startsWith('{')) {
+        try {
+          sectionData = JSON.parse(sectionData);
+        } catch {}
+      }
 
-      const getRespostaStatusClass = (value: unknown) => {
-          const normalized = normalizeRespostaStatus(value);
-          if (normalized === 'sem irregularidades') return 'item-valor item-valor-sem-irregularidades';
-          if (normalized === 'com apontamento' || normalized === 'com irregularidades') return 'item-valor item-valor-com-apontamento';
-          return 'item-valor';
-      };
+      // Buscar o valor da resposta
+      let value = '-';
+      if (sectionData) {
+        if (fieldKey && sectionData[fieldKey] !== undefined) {
+          value = sectionData[fieldKey];
+        } else if (typeof sectionData === 'string' && !fieldKey) {
+          // CASO CRÍTICO: Se a seção é apenas uma string (ex: Atestado), retorna ela mesma
+          value = sectionData;
+        } else if (sectionData[questionText] !== undefined) {
+          value = sectionData[questionText];
+        } else if (sectionData[questionId] !== undefined) {
+          value = sectionData[questionId];
+        }
+      }
 
-      const formatRespostaStatus = (value: unknown) => {
-          const normalized = normalizeRespostaStatus(value);
-          if (normalized === 'sem irregularidades') return 'sem irregularidades';
-          if (normalized === 'com apontamento' || normalized === 'com irregularidades') return 'com apontamento';
-          if (normalized === 'outros') return 'outros';
-          return String(value).toLowerCase();
-      };
+      if (value === null || value === undefined || value === '') value = '-';
+      if (typeof value === 'object') value = JSON.stringify(value);
 
-      const renderItem = (sectionName: string, questionText: string, questionId: string, index: number) => {
-          const normalizedKey = normalizeSectionName(sectionName);
-          const mapping = SECTION_FIELD_MAP[normalizedKey];
-          
-          // Identificar a chave de dados (ex: analisesHidraulicas, dadosExtra, etc)
-          const dataKey = mapping?.dataKey || normalizedKey;
-          const fieldKey = mapping?.fields?.[index];
+      const displayValue = formatRespostaStatus(value);
 
-          // Buscar o objeto de dados da seção
-          let sectionData = details[dataKey];
-          
-          // Fallback: tentar buscar em dadosExtra
-          // Importante: para seções órfãs, o nome da seção DEVE ser usado para buscar em dadosExtra
-          if (!sectionData && details.dadosExtra) {
-               const extra = typeof details.dadosExtra === 'string' ? JSON.parse(details.dadosExtra) : details.dadosExtra;
-               // Tenta pelo nome exato ou normalizado
-               sectionData = extra[sectionName] || extra[normalizedKey];
-          }
-          
-          // Parsing se for string JSON
-          if (typeof sectionData === 'string' && sectionData.startsWith('{')) {
-            try { sectionData = JSON.parse(sectionData); } catch {}
-          }
-
-          // Buscar o valor da resposta
-          let value = '-';
-          if (sectionData) {
-            if (fieldKey && sectionData[fieldKey] !== undefined) {
-               value = sectionData[fieldKey];
-            } else if (typeof sectionData === 'string' && !fieldKey) {
-               // CASO CRÍTICO: Se a seção é apenas uma string (ex: Atestado), retorna ela mesma
-               value = sectionData;
-            } else if (sectionData[questionText] !== undefined) {
-               value = sectionData[questionText];
-            } else if (sectionData[questionId] !== undefined) {
-               value = sectionData[questionId];
-            }
-          }
-
-          if (value === null || value === undefined || value === '') value = '-';
-          if (typeof value === 'object') value = JSON.stringify(value);
-
-          const displayValue = formatRespostaStatus(value);
-
-          return `
+      return `
             <div class="item-row">
                 <span class="item-label">${questionText}</span>
                 <span class="${getRespostaStatusClass(value)}">${displayValue}</span>
             </div>
           `;
-      };
+    };
 
-      // Divisão Colunas
-      const mid = Math.ceil(finalSections.length / 2);
-      const col1 = finalSections.slice(0, mid);
-      const col2 = finalSections.slice(mid);
+    // Divisão Colunas
+    const mid = Math.ceil(finalSections.length / 2);
+    const col1 = finalSections.slice(0, mid);
+    const col2 = finalSections.slice(mid);
 
-      const renderColumn = (secs: any[]) => {
-          return secs.map(sec => `
+    const renderColumn = (secs: any[]) => {
+      return secs
+        .map(
+          (sec) => `
             <div class="grupo avoid-break">
                 <div class="categoria-box">${sec.name}</div>
                 ${sec.questions?.map((q: any, idx: number) => renderItem(sec.name, q.questionText, q.id || '', idx)).join('')}
             </div>
-          `).join('');
-      };
+          `,
+        )
+        .join('');
+    };
 
-      // Imagem removida conforme solicitado
-      const logoBase64 = '';
+    // Imagem removida conforme solicitado
+    const logoBase64 = '';
 
-      const frontendUrl = process.env[`${process.env.NODE_ENV === 'production' ? 'PROD' : 'DEV'}_FRONTEND_URL`]
-          || process.env.FRONTEND_URL
-          || 'http://localhost:5173';
-      const galeriaUrl = `${frontendUrl}/dashboard/laudos/${laudo.id}/galeria`;
-      const qrCodeDataUrl = await QRCode.toDataURL(galeriaUrl, { width: 100, margin: 1 });
+    const frontendUrl =
+      process.env[`${process.env.NODE_ENV === 'production' ? 'PROD' : 'DEV'}_FRONTEND_URL`] ||
+      process.env.FRONTEND_URL ||
+      'http://localhost:5173';
+    const galeriaUrl = `${frontendUrl}/dashboard/laudos/${laudo.id}/galeria`;
+    const qrCodeDataUrl = await QRCode.toDataURL(galeriaUrl, { width: 100, margin: 1 });
 
-      return `
+    return `
          <div class="page-container page-standard">
             <div style="height: 35px;"></div>
             <h2 class="relatorio-titulo">RELATÓRIO GERAL DE APONTAMENTO</h2>

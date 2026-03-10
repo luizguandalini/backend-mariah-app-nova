@@ -29,6 +29,15 @@ export class ConfiguracaoPdfUsuario {
   @Column({ name: 'margem_pagina', type: 'integer', default: 20 })
   margemPagina: number;
 
+  @Column({ name: 'metodologia_texto', type: 'text', nullable: true })
+  metodologiaTexto: string | null;
+
+  @Column({ name: 'termos_gerais_texto', type: 'text', nullable: true })
+  termosGeraisTexto: string | null;
+
+  @Column({ name: 'assinatura_texto', type: 'text', nullable: true })
+  assinaturaTexto: string | null;
+
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }
