@@ -5,6 +5,10 @@ import {
   Body,
   UseGuards,
   Request,
+  Post,
+  Delete,
+  Param,
+  Query,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SystemConfigService } from './config.service';
@@ -43,9 +47,65 @@ export class SystemConfigController {
     @Request() req: any,
   ): Promise<{ success: boolean; message: string }> {
     await this.configService.setDefaultPrompt(dto.value, req.user.id);
-    return { 
-      success: true, 
-      message: 'Prompt padrão atualizado com sucesso' 
+    return {
+      success: true,
+      message: 'Prompt padrão atualizado com sucesso',
     };
+  }
+
+  @Get('tipos-imovel')
+  @ApiOperation({ summary: 'Listar tipos de imóvel com paginação' })
+  async getTiposImovel(
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+    @Query('tipoUso') tipoUso?: string,
+  ) {
+    return this.configService.getTiposImovelPaginado(
+      limit ? Number(limit) : 10,
+      offset ? Number(offset) : 0,
+      tipoUso,
+    );
+  }
+
+  @Get('tipos-imovel/por-uso')
+  @ApiOperation({
+    summary: 'Listar tipos de imóvel agrupados por tipo de uso',
+  })
+  async getTiposImovelPorUso() {
+    return this.configService.getTiposImovelPorUso();
+  }
+
+  @Post('tipos-imovel')
+  @Roles(UserRole.DEV, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Criar tipo de imóvel' })
+  async createTipoImovel(
+    @Body() body: { nome: string; tipoUso: string },
+    @Request() req: any,
+  ) {
+    return this.configService.createTipoImovel(body.nome, body.tipoUso, req.user.id);
+  }
+
+  @Put('tipos-imovel/:id')
+  @Roles(UserRole.DEV, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Editar tipo de imóvel' })
+  async updateTipoImovel(
+    @Param('id') id: string,
+    @Body() body: { nome: string; tipoUso: string },
+    @Request() req: any,
+  ) {
+    return this.configService.updateTipoImovel(
+      id,
+      body.nome,
+      body.tipoUso,
+      req.user.id,
+    );
+  }
+
+  @Delete('tipos-imovel/:id')
+  @Roles(UserRole.DEV, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Excluir tipo de imóvel (mínimo 1 ativo)' })
+  async deleteTipoImovel(@Param('id') id: string, @Request() req: any) {
+    await this.configService.deleteTipoImovel(id, req.user.id);
+    return { success: true };
   }
 }

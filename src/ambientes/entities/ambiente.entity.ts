@@ -7,7 +7,7 @@ import {
   OneToMany,
 } from 'typeorm';
 import { ItemAmbiente } from './item-ambiente.entity';
-import { TipoUso, TipoImovel } from '../enums/ambiente-tipos.enum';
+import { TipoUso } from '../enums/ambiente-tipos.enum';
 
 @Entity('ambientes')
 export class Ambiente {
@@ -36,13 +36,12 @@ export class Ambiente {
   tiposUso: TipoUso[];
 
   @Column({
-    type: 'enum',
-    enum: TipoImovel,
+    type: 'text',
     array: true,
     default: '{}',
     name: 'tipos_imovel',
   })
-  tiposImovel: TipoImovel[];
+  tiposImovel: string[];
 
   @Column({ type: 'uuid', nullable: true, name: 'grupo_id' })
   grupoId: string;

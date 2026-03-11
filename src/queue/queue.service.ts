@@ -662,9 +662,32 @@ export class QueueService implements OnModuleInit {
       return true;
     }
 
-    // Buscar ambiente pelo nome (normalizado)
-    const ambientes = await this.ambienteRepository.find();
-    const ambiente = ambientes.find((a) => textMatches(a.nome, tipoAmbiente));
+    const laudo = await this.laudoRepository.findOne({
+      where: { id: imagem.laudoId },
+      select: ['id', 'tipoUso', 'tipoImovel'],
+    });
+    const tipoUsoFormatado = laudo?.tipoUso
+      ? `${laudo.tipoUso.charAt(0)}${laudo.tipoUso.slice(1).toLowerCase()}`
+      : null;
+    const tipoImovelLaudo = laudo?.tipoImovel || null;
+
+    const ambientes = await this.ambienteRepository.find({
+      where: { ativo: true },
+    });
+    const ambiente = ambientes.find((a) => {
+      if (!textMatches(a.nome, tipoAmbiente)) {
+        return false;
+      }
+      const matchUso =
+        !tipoUsoFormatado ||
+        !a.tiposUso?.length ||
+        a.tiposUso.includes(tipoUsoFormatado as any);
+      const matchImovel =
+        !tipoImovelLaudo ||
+        !a.tiposImovel?.length ||
+        a.tiposImovel.some((tipoImovel) => textMatches(tipoImovel, tipoImovelLaudo));
+      return matchUso && matchImovel;
+    });
 
     if (!ambiente) {
       this.logAnalysis({
@@ -672,7 +695,7 @@ export class QueueService implements OnModuleInit {
         item: tipoItem,
         filho: null,
         promptEnviado: '(ambiente não encontrado)',
-        resposta: `Ambiente "${tipoAmbiente}" não encontrado`,
+        resposta: `Ambiente "${tipoAmbiente}" não encontrado para o contexto ${tipoUsoFormatado || 'N/A'} / ${tipoImovelLaudo || 'N/A'}`,
         sucesso: false,
       });
       imagem.legenda = `Ambiente "${tipoAmbiente}" não encontrado`;

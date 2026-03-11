@@ -12,7 +12,8 @@ import { Ambiente } from './entities/ambiente.entity';
 import { CreateAmbienteDto } from './dto/create-ambiente.dto';
 import { UpdateAmbienteDto } from './dto/update-ambiente.dto';
 import { ItensAmbienteService } from './itens-ambiente.service';
-import { TipoUso, TipoImovel } from './enums/ambiente-tipos.enum';
+import { TipoUso } from './enums/ambiente-tipos.enum';
+import { SystemConfigService } from '../config/config.service';
 
 @Injectable()
 export class AmbientesService {
@@ -21,6 +22,7 @@ export class AmbientesService {
     private readonly ambienteRepository: Repository<Ambiente>,
     @Inject(forwardRef(() => ItensAmbienteService))
     private readonly itensAmbienteService: ItensAmbienteService,
+    private readonly systemConfigService: SystemConfigService,
   ) {}
 
   async create(createAmbienteDto: CreateAmbienteDto): Promise<Ambiente> {
@@ -94,11 +96,14 @@ export class AmbientesService {
    * Listar todos os nomes de ambientes disponíveis (para app mobile)
    */
   async listarNomes(): Promise<string[]> {
-    const ambientes = await this.ambienteRepository.find({
-      where: { ativo: true },
-      select: ['nome'],
-      order: { nome: 'ASC' },
-    });
+    const ambientes = await this.ambienteRepository
+      .createQueryBuilder('ambiente')
+      .select(['ambiente.nome'])
+      .where('ambiente.ativo = :ativo', { ativo: true })
+      .andWhere('COALESCE(array_length(ambiente.tipos_uso, 1), 0) > 0')
+      .andWhere('COALESCE(array_length(ambiente.tipos_imovel, 1), 0) > 0')
+      .orderBy('ambiente.nome', 'ASC')
+      .getMany();
 
     // Retornar lista de nomes únicos
     const nomes = [...new Set(ambientes.map((a) => a.nome))];
@@ -118,6 +123,8 @@ export class AmbientesService {
       .createQueryBuilder('ambiente')
       .where('LOWER(ambiente.nome) = LOWER(:nome)', { nome })
       .andWhere('ambiente.ativo = :ativo', { ativo: true })
+      .andWhere('COALESCE(array_length(ambiente.tipos_uso, 1), 0) > 0')
+      .andWhere('COALESCE(array_length(ambiente.tipos_imovel, 1), 0) > 0')
       .getMany();
 
     if (ambientes.length === 0) {
@@ -131,9 +138,13 @@ export class AmbientesService {
     let ambientesParaBuscar = ambientes;
 
     if (primeiroAmbiente.grupoId) {
-      ambientesParaBuscar = await this.ambienteRepository.find({
-        where: { grupoId: primeiroAmbiente.grupoId, ativo: true },
-      });
+      ambientesParaBuscar = await this.ambienteRepository
+        .createQueryBuilder('ambiente')
+        .where('ambiente.grupo_id = :grupoId', { grupoId: primeiroAmbiente.grupoId })
+        .andWhere('ambiente.ativo = :ativo', { ativo: true })
+        .andWhere('COALESCE(array_length(ambiente.tipos_uso, 1), 0) > 0')
+        .andWhere('COALESCE(array_length(ambiente.tipos_imovel, 1), 0) > 0')
+        .getMany();
     }
 
     // Buscar todos os itens PAI desses ambientes
@@ -159,9 +170,7 @@ export class AmbientesService {
     }
 
     // Converter Map para array e ordenar por ordem
-    const itensUnicos = Array.from(itensMap.values()).sort(
-      (a, b) => a.ordem - b.ordem,
-    );
+    const itensUnicos = Array.from(itensMap.values()).sort((a, b) => a.ordem - b.ordem);
 
     return itensUnicos;
   }
@@ -169,10 +178,10 @@ export class AmbientesService {
   /**
    * Buscar todos os ambientes com seus itens PAI para sincronização (app mobile)
    * Retorna estrutura consolidada para cache local no dispositivo
-   * 
+   *
    * OTIMIZADO: Usa LEFT JOIN para buscar todos os dados em uma única query,
    * evitando o problema N+1 que causava timeout no app mobile
-   * 
+   *
    * IMPORTANTE: Cada ambiente é retornado individualmente pelo seu nome.
    * Quando faz parte de um grupo, os itens são consolidados de todos os ambientes do grupo.
    */
@@ -180,8 +189,15 @@ export class AmbientesService {
     // Buscar todos os ambientes ativos COM seus itens em uma única query
     const todosAmbientes = await this.ambienteRepository
       .createQueryBuilder('ambiente')
-      .leftJoinAndSelect('ambiente.itens', 'item', 'item.ativo = :itemAtivo AND item.parentId IS NULL', { itemAtivo: true })
+      .leftJoinAndSelect(
+        'ambiente.itens',
+        'item',
+        'item.ativo = :itemAtivo AND item.parentId IS NULL',
+        { itemAtivo: true },
+      )
       .where('ambiente.ativo = :ativo', { ativo: true })
+      .andWhere('COALESCE(array_length(ambiente.tipos_uso, 1), 0) > 0')
+      .andWhere('COALESCE(array_length(ambiente.tipos_imovel, 1), 0) > 0')
       .orderBy('ambiente.nome', 'ASC')
       .addOrderBy('item.ordem', 'ASC')
       .getMany();
@@ -189,21 +205,22 @@ export class AmbientesService {
     if (todosAmbientes.length === 0) {
       return {
         ambientes: [],
+        tipos_imovel_por_uso: await this.systemConfigService.getTiposImovelPorUso(),
         ultima_atualizacao: new Date().toISOString(),
       };
     }
 
     // Pré-processar: criar mapa de grupoId -> itens consolidados
     const itensConsolidadosPorGrupo = new Map<string, any[]>();
-    
+
     // Para cada grupo, consolida todos os itens de todos os ambientes do grupo
     for (const ambiente of todosAmbientes) {
       if (ambiente.grupoId) {
         if (!itensConsolidadosPorGrupo.has(ambiente.grupoId)) {
           // Buscar todos os ambientes do grupo e consolidar itens
-          const ambientesDoGrupo = todosAmbientes.filter(a => a.grupoId === ambiente.grupoId);
+          const ambientesDoGrupo = todosAmbientes.filter((a) => a.grupoId === ambiente.grupoId);
           const itensMap = new Map<string, any>();
-          
+
           for (const ambGrupo of ambientesDoGrupo) {
             const itensPai = ambGrupo.itens || [];
             for (const item of itensPai) {
@@ -217,7 +234,7 @@ export class AmbientesService {
               }
             }
           }
-          
+
           const itensUnicos = Array.from(itensMap.values()).sort((a, b) => a.ordem - b.ordem);
           itensConsolidadosPorGrupo.set(ambiente.grupoId, itensUnicos);
         }
@@ -234,24 +251,28 @@ export class AmbientesService {
       }
 
       let itensFinais: any[];
-      
+
       if (ambiente.grupoId) {
         // Se faz parte de um grupo, usa itens consolidados do grupo
         itensFinais = itensConsolidadosPorGrupo.get(ambiente.grupoId) || [];
       } else {
         // Ambiente individual - usa seus próprios itens
         const itensPai = ambiente.itens || [];
-        itensFinais = itensPai.map(item => ({
-          id: item.id,
-          nome: item.nome,
-          descricao: item.descricao,
-          ordem: item.ordem,
-        })).sort((a, b) => a.ordem - b.ordem);
+        itensFinais = itensPai
+          .map((item) => ({
+            id: item.id,
+            nome: item.nome,
+            descricao: item.descricao,
+            ordem: item.ordem,
+          }))
+          .sort((a, b) => a.ordem - b.ordem);
       }
 
       // Adicionar ao mapa de ambientes
       ambientesMap.set(ambiente.nome, {
         nome: ambiente.nome,
+        tiposUso: ambiente.tiposUso || [],
+        tiposImovel: ambiente.tiposImovel || [],
         itens: itensFinais,
       });
     }
@@ -261,6 +282,7 @@ export class AmbientesService {
 
     return {
       ambientes,
+      tipos_imovel_por_uso: await this.systemConfigService.getTiposImovelPorUso(),
       ultima_atualizacao: new Date().toISOString(),
     };
   }
@@ -517,26 +539,26 @@ export class AmbientesService {
       throw new NotFoundException('Ambiente não encontrado');
     }
 
-    // Validar se o tipo é válido
-    const tiposValidos = Object.values(TipoImovel);
-    if (!tiposValidos.includes(tipo as TipoImovel)) {
+    const tipoNormalizado = tipo.trim();
+    const tipoValido = await this.systemConfigService.isTipoImovelValido(tipoNormalizado);
+    if (!tipoValido) {
       throw new BadRequestException(`Tipo de imóvel inválido: ${tipo}`);
     }
 
-    const tipoEnum = tipo as TipoImovel;
-
     // Adicionar tipo se ainda não existir
-    if (!ambiente.tiposImovel.includes(tipoEnum)) {
-      ambiente.tiposImovel = [...ambiente.tiposImovel, tipoEnum];
+    if (!ambiente.tiposImovel.includes(tipoNormalizado)) {
+      ambiente.tiposImovel = [...ambiente.tiposImovel, tipoNormalizado];
 
       if (ambiente.grupoId) {
         // UPDATE em todos do grupo
         await this.ambienteRepository
           .createQueryBuilder()
           .update()
-          .set({ tiposImovel: () => `array_append(tipos_imovel, '${tipo}')` })
+          .set({
+            tiposImovel: () => `array_append(tipos_imovel, '${tipoNormalizado}')`,
+          })
           .where('grupo_id = :grupoId', { grupoId: ambiente.grupoId })
-          .andWhere(':tipo != ALL(tipos_imovel)', { tipo })
+          .andWhere(':tipo != ALL(tipos_imovel)', { tipo: tipoNormalizado })
           .execute();
       } else {
         await this.ambienteRepository.save(ambiente);
@@ -562,24 +584,24 @@ export class AmbientesService {
       throw new NotFoundException('Ambiente não encontrado');
     }
 
-    // Validar se o tipo é válido
-    const tiposValidos = Object.values(TipoImovel);
-    if (!tiposValidos.includes(tipo as TipoImovel)) {
+    const tipoNormalizado = tipo.trim();
+    const tipoValido = await this.systemConfigService.isTipoImovelValido(tipoNormalizado);
+    if (!tipoValido) {
       throw new BadRequestException(`Tipo de imóvel inválido: ${tipo}`);
     }
 
-    const tipoEnum = tipo as TipoImovel;
-
     // Remover tipo se existir
-    if (ambiente.tiposImovel.includes(tipoEnum)) {
-      ambiente.tiposImovel = ambiente.tiposImovel.filter((t) => t !== tipoEnum);
+    if (ambiente.tiposImovel.includes(tipoNormalizado)) {
+      ambiente.tiposImovel = ambiente.tiposImovel.filter((t) => t !== tipoNormalizado);
 
       if (ambiente.grupoId) {
         // UPDATE em todos do grupo
         await this.ambienteRepository
           .createQueryBuilder()
           .update()
-          .set({ tiposImovel: () => `array_remove(tipos_imovel, '${tipo}')` })
+          .set({
+            tiposImovel: () => `array_remove(tipos_imovel, '${tipoNormalizado}')`,
+          })
           .where('grupo_id = :grupoId', { grupoId: ambiente.grupoId })
           .execute();
       } else {

@@ -8,7 +8,7 @@ import {
   IsArray,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
-import { TipoUso, TipoImovel } from '../enums/ambiente-tipos.enum';
+import { TipoUso } from '../enums/ambiente-tipos.enum';
 
 export class CreateAmbienteDto {
   @ApiProperty({
@@ -44,15 +44,18 @@ export class CreateAmbienteDto {
 
   @ApiProperty({
     description: 'Tipos de imóvel aplicáveis a este ambiente',
-    example: ['Casa', 'Apartamento', 'Estudio'],
-    enum: TipoImovel,
+    example: ['Galpão', 'Studio'],
     isArray: true,
     required: false,
   })
   @IsOptional()
   @IsArray({ message: 'Tipos de imóvel deve ser um array' })
-  @IsEnum(TipoImovel, { each: true, message: 'Tipo de imóvel inválido' })
-  tiposImovel?: TipoImovel[];
+  @IsString({ each: true, message: 'Cada tipo de imóvel deve ser texto' })
+  @MaxLength(100, {
+    each: true,
+    message: 'Cada tipo de imóvel pode ter no máximo 100 caracteres',
+  })
+  tiposImovel?: string[];
 
   @ApiProperty({
     description: 'Define se o ambiente está ativo',
