@@ -838,7 +838,11 @@ export class QueueService implements OnModuleInit {
           etapa: 2,
           defaultPromptUsado: !!defaultPrompt,
         });
-        imagem.legenda = finalResult.content.substring(0, 200); // Limitar a 200 chars
+        const suffix = imagem.avariaLocal && imagem.avariaLocal.trim() !== '' 
+          ? ' com detalhe apontado' 
+          : ' sem avarias aparentes';
+        const maxContentLen = 200 - suffix.length;
+        imagem.legenda = finalResult.content.substring(0, maxContentLen).trim() + suffix;
         imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
       } else {
         // Verificar se é erro crítico que deve pausar a fila
@@ -888,7 +892,11 @@ export class QueueService implements OnModuleInit {
           sucesso: true,
           defaultPromptUsado: !!defaultPrompt,
         });
-        imagem.legenda = result.content.substring(0, 200);
+        const suffix = imagem.avariaLocal && imagem.avariaLocal.trim() !== '' 
+          ? ' com detalhe apontado' 
+          : ' sem avarias aparentes';
+        const maxContentLen = 200 - suffix.length;
+        imagem.legenda = result.content.substring(0, maxContentLen).trim() + suffix;
         imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
       } else {
         // Verificar se é erro crítico que deve pausar a fila
