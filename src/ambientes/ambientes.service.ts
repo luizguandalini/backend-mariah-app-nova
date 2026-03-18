@@ -72,13 +72,14 @@ export class AmbientesService {
     limit: number = 10,
     offset: number = 0,
   ): Promise<{ data: any[]; total: number; hasMore: boolean }> {
-    // Buscar total de ambientes únicos (contando grupos como 1)
+    // Buscar todos os ambientes ativos (SEM itens - frontend faz lazy-loading)
     const allAmbientes = await this.ambienteRepository.find({
       where: { ativo: true },
       order: { ordem: 'ASC', nome: 'ASC' },
     });
 
-    const allTree = await this.buildAmbientesTree(allAmbientes);
+    // Montar árvore SEM buscar itens (apenas agrupamento de grupos)
+    const allTree = this.buildAmbientesTreeWithoutItems(allAmbientes);
     const total = allTree.length;
 
     // Paginar a árvore construída
@@ -90,6 +91,67 @@ export class AmbientesService {
       total,
       hasMore,
     };
+  }
+
+  /**
+   * Monta a árvore de ambientes SEM buscar itens (0 queries adicionais).
+   * Usado pelo endpoint paginado, onde o frontend faz lazy-loading dos itens.
+   */
+  private buildAmbientesTreeWithoutItems(ambientes: Ambiente[]): any[] {
+    const grupos = new Map<string, any>();
+    const gruposProcessados = new Set<string>();
+    const resultado: any[] = [];
+
+    for (const ambiente of ambientes) {
+      if (ambiente.grupoId) {
+        if (!gruposProcessados.has(ambiente.grupoId)) {
+          if (!grupos.has(ambiente.grupoId)) {
+            grupos.set(ambiente.grupoId, {
+              id: ambiente.grupoId,
+              nome: ambiente.nome,
+              isGrupo: true,
+              grupoId: ambiente.grupoId,
+              ambientes: [],
+              nomes: [],
+              tiposUso: ambiente.tiposUso,
+              tiposImovel: ambiente.tiposImovel,
+              ativo: ambiente.ativo,
+              ordem: ambiente.ordem,
+              itens: [],
+              createdAt: ambiente.createdAt,
+              updatedAt: ambiente.updatedAt,
+            });
+          }
+
+          const grupo = grupos.get(ambiente.grupoId);
+          grupo.ambientes.push({
+            id: ambiente.id,
+            nome: ambiente.nome,
+          });
+          grupo.nomes.push(ambiente.nome);
+          grupo.nome = grupo.nomes.join(' + ');
+
+          resultado.push(grupo);
+          gruposProcessados.add(ambiente.grupoId);
+        } else {
+          const grupo = grupos.get(ambiente.grupoId);
+          grupo.ambientes.push({
+            id: ambiente.id,
+            nome: ambiente.nome,
+          });
+          grupo.nomes.push(ambiente.nome);
+          grupo.nome = grupo.nomes.join(' + ');
+        }
+      } else {
+        resultado.push({
+          ...ambiente,
+          itens: [],
+          isGrupo: false,
+        });
+      }
+    }
+
+    return resultado;
   }
 
   /**
