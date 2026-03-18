@@ -107,9 +107,9 @@ export class UsersController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.DEV, UserRole.ADMIN)
+  @Roles(UserRole.DEV)
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Deletar usuário (DEV/ADMIN)' })
+  @ApiOperation({ summary: 'Deletar usuário (APENAS DEV)' })
   @ApiParam({ name: 'id', description: 'ID do usuário' })
   @ApiResponse({ status: 204, description: 'Usuário deletado' })
   @ApiResponse({ status: 403, description: 'Sem permissão' })

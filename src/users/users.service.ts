@@ -1,21 +1,40 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { Usuario } from './entities/usuario.entity';
 import { ConfiguracaoPdfUsuario } from './entities/configuracao-pdf-usuario.entity';
+import { Laudo } from '../laudos/entities/laudo.entity';
+import { ImagemLaudo } from '../uploads/entities/imagem-laudo.entity';
+import { AnalysisQueue } from '../queue/entities/analysis-queue.entity';
+import { RefreshToken } from '../auth/entities/refresh-token.entity';
+import { WebLoginTicket } from '../auth/entities/web-login-ticket.entity';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { UpdateConfiguracoesPdfDto } from './dto/update-configuracoes-pdf.dto';
 import { UserRole } from './enums/user-role.enum';
+import { UploadsService } from '../uploads/uploads.service';
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
     @InjectRepository(ConfiguracaoPdfUsuario)
     private readonly configuracaoPdfRepository: Repository<ConfiguracaoPdfUsuario>,
+    @InjectRepository(Laudo)
+    private readonly laudoRepository: Repository<Laudo>,
+    @InjectRepository(ImagemLaudo)
+    private readonly imagemLaudoRepository: Repository<ImagemLaudo>,
+    @InjectRepository(AnalysisQueue)
+    private readonly analysisQueueRepository: Repository<AnalysisQueue>,
+    @InjectRepository(RefreshToken)
+    private readonly refreshTokenRepository: Repository<RefreshToken>,
+    @InjectRepository(WebLoginTicket)
+    private readonly webLoginTicketRepository: Repository<WebLoginTicket>,
+    private readonly uploadsService: UploadsService,
   ) {}
 
   async findAll(
@@ -169,7 +188,69 @@ export class UsersService {
       throw new ForbiddenException('Não é permitido deletar usuário DEV');
     }
 
-    await this.usuarioRepository.remove(usuario);
+    this.logger.warn(`🗑️ Iniciando deleção completa do usuário: ${usuario.nome} (${usuario.email}) - ID: ${id}`);
+
+    // 1. Buscar todos os laudos do usuário para deletar imagens do S3
+    const laudos = await this.laudoRepository.find({ where: { usuarioId: id } });
+    const laudoIds = laudos.map(l => l.id);
+
+    // 2. Deletar imagens do S3 (fora da transação do banco)
+    for (const laudoId of laudoIds) {
+      try {
+        await this.uploadsService.deleteImagensByLaudo(laudoId);
+        this.logger.log(`  ✅ Imagens S3 do laudo ${laudoId} deletadas`);
+      } catch (error) {
+        this.logger.error(`  ⚠️ Erro ao deletar imagens S3 do laudo ${laudoId}:`, error);
+        // Continua mesmo com erro no S3
+      }
+    }
+
+    // 3. Deletar PDFs do S3 (se existirem)
+    for (const laudo of laudos) {
+      if (laudo.pdfUrl) {
+        try {
+          const s3Key = `users/${id}/laudos/${laudo.id}/relatorio.pdf`;
+          await this.uploadsService.deleteFile(s3Key);
+        } catch (error) {
+          this.logger.error(`  ⚠️ Erro ao deletar PDF do laudo ${laudo.id}:`, error);
+        }
+      }
+    }
+
+    // 4. Deletar registros do banco em transação
+    await this.usuarioRepository.manager.transaction(async (manager) => {
+      // 4a. Deletar registros da fila de análise
+      await manager.delete(AnalysisQueue, { usuarioId: id });
+      this.logger.log(`  ✅ Registros da fila de análise deletados`);
+
+      // 4b. Deletar imagens do banco (vinculadas ao usuário)
+      await manager.delete(ImagemLaudo, { usuarioId: id });
+      this.logger.log(`  ✅ Registros de imagens deletados do banco`);
+
+      // 4c. Deletar web login tickets
+      await manager.delete(WebLoginTicket, { usuarioId: id });
+      this.logger.log(`  ✅ Web login tickets deletados`);
+
+      // 4d. Deletar refresh tokens
+      await manager.delete(RefreshToken, { usuarioId: id });
+      this.logger.log(`  ✅ Refresh tokens deletados`);
+
+      // 4e. Deletar laudos
+      if (laudoIds.length > 0) {
+        await manager.delete(Laudo, { usuarioId: id });
+        this.logger.log(`  ✅ ${laudoIds.length} laudos deletados`);
+      }
+
+      // 4f. Deletar configurações de PDF
+      await manager.delete(ConfiguracaoPdfUsuario, { usuarioId: id });
+      this.logger.log(`  ✅ Configurações de PDF deletadas`);
+
+      // 4g. Deletar o próprio usuário
+      await manager.remove(usuario);
+      this.logger.log(`  ✅ Usuário removido do banco`);
+    });
+
+    this.logger.warn(`🗑️ Deleção completa do usuário ${usuario.nome} (${usuario.email}) finalizada com sucesso`);
   }
 
   async getMe(userId: string): Promise<Usuario> {
