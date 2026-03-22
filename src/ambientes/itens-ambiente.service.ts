@@ -51,17 +51,22 @@ export class ItensAmbienteService {
   }
 
   async findAllByAmbiente(ambienteId: string): Promise<ItemAmbiente[]> {
-    // Retorna todos os itens do ambiente com seus filhos em estrutura hierárquica
     const allItems = await this.itemRepository.find({
       where: { ambienteId },
       order: { ordem: 'ASC' },
     });
 
-    // Monta a árvore hierárquica
-    return this.buildTree(allItems);
+    const tree = this.buildTree(allItems);
+    return this.applyTechnicalPrompt(tree);
   }
 
   async findOne(id: string): Promise<ItemAmbiente> {
+    const item = await this.findOneRaw(id);
+    const [itemComPromptTecnico] = this.applyTechnicalPrompt([item]);
+    return itemComPromptTecnico;
+  }
+
+  private async findOneRaw(id: string): Promise<ItemAmbiente> {
     const item = await this.itemRepository.findOne({
       where: { id },
       relations: ['filhos'],
@@ -75,7 +80,7 @@ export class ItensAmbienteService {
   }
 
   async update(id: string, updateItemDto: UpdateItemAmbienteDto): Promise<ItemAmbiente> {
-    const item = await this.findOne(id);
+    const item = await this.findOneRaw(id);
 
     // Troca ordem se necessário
     if (updateItemDto.ordem && updateItemDto.ordem !== item.ordem) {
@@ -88,12 +93,19 @@ export class ItensAmbienteService {
       );
     }
 
+    const hasChildren = Array.isArray(item.filhos) && item.filhos.length > 0;
+    if (hasChildren && updateItemDto.prompt !== undefined) {
+      delete updateItemDto.prompt;
+    }
+
     Object.assign(item, updateItemDto);
-    return await this.itemRepository.save(item);
+    const atualizado = await this.itemRepository.save(item);
+    const [itemComPromptTecnico] = this.applyTechnicalPrompt([atualizado]);
+    return itemComPromptTecnico;
   }
 
   async remove(id: string): Promise<void> {
-    const item = await this.findOne(id);
+    const item = await this.findOneRaw(id);
     await this.itemRepository.remove(item);
   }
 
@@ -120,6 +132,31 @@ export class ItensAmbienteService {
     });
 
     return roots;
+  }
+
+  private applyTechnicalPrompt(items: ItemAmbiente[]): ItemAmbiente[] {
+    return items.map((item) => {
+      const filhosOrdenados = (item.filhos || []).sort((a, b) => a.ordem - b.ordem);
+      const filhosComPrompt = this.applyTechnicalPrompt(filhosOrdenados);
+      const filhosAtivos = filhosComPrompt.filter((filho) => filho.ativo);
+      const promptTecnico = this.buildTechnicalPrompt(item.nome, filhosAtivos);
+
+      return {
+        ...item,
+        filhos: filhosComPrompt,
+        prompt: promptTecnico || item.prompt,
+        promptTecnicoAutomatizado: !!promptTecnico,
+      } as ItemAmbiente;
+    });
+  }
+
+  private buildTechnicalPrompt(nomeItemPai: string, filhosAtivos: ItemAmbiente[]): string | null {
+    if (filhosAtivos.length === 0) {
+      return null;
+    }
+
+    const opcoes = filhosAtivos.map((filho) => `"${filho.nome}"`).join(', ');
+    return `Item base: "${nomeItemPai}". Selecione exatamente uma opção entre: ${opcoes}. Analise a imagem e escolha a opção que melhor representa o conteúdo, mesmo em caso de dúvida. Responda apenas com o nome exato da opção escolhida. Nunca responda fora das opções listadas.`;
   }
 
   private async trocarOrdem(

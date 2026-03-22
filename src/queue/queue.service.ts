@@ -13,10 +13,7 @@ import { Laudo, StatusLaudo } from '../laudos/entities/laudo.entity';
 import { OpenAIService } from '../openai/openai.service';
 import { Ambiente } from '../ambientes/entities/ambiente.entity';
 import { ItemAmbiente } from '../ambientes/entities/item-ambiente.entity';
-import {
-  normalizeForMatch,
-  textMatches,
-} from '../common/utils/text-normalizer.util';
+import { normalizeForMatch, textMatches } from '../common/utils/text-normalizer.util';
 import { RabbitMQService, QueueMessage } from './rabbitmq.service';
 import { UploadsService } from '../uploads/uploads.service';
 import { SystemConfig } from '../config/entities/system-config.entity';
@@ -86,34 +83,35 @@ export class QueueService implements OnModuleInit {
     // Recuperar itens travados (zumbis de restart)
     // Verificar itens PENDING ou PROCESSING que já terminaram (processedImages >= totalImages)
     const allActiveItems = await this.queueRepository.find({
-        where: [
-          { status: AnalysisStatus.PROCESSING },
-          { status: AnalysisStatus.PENDING },
-        ]
+      where: [{ status: AnalysisStatus.PROCESSING }, { status: AnalysisStatus.PENDING }],
     });
-    
+
     if (allActiveItems.length > 0) {
-        for (const item of allActiveItems) {
-            // Se já processou tudo, marcar como COMPLETED
-            if (item.processedImages >= item.totalImages && item.totalImages > 0) {
-                this.logger.log(`Item ${item.laudoId} já está 100% processado (${item.processedImages}/${item.totalImages}). Marcando como COMPLETED.`);
-                item.status = AnalysisStatus.COMPLETED;
-                item.completedAt = new Date();
-                item.position = null;
-                await this.queueRepository.save(item);
-                
-                // Atualizar o Laudo também
-                await this.laudoRepository.update(item.laudoId, { status: StatusLaudo.CONCLUIDO });
-            } 
-            // Se estava PROCESSING mas não terminou, volta para PENDING
-            else if (item.status === AnalysisStatus.PROCESSING) {
-                this.logger.warn(`Item ${item.laudoId} travado em PROCESSING (${item.processedImages}/${item.totalImages}). Retornando para PENDING.`);
-                item.status = AnalysisStatus.PENDING;
-                await this.queueRepository.save(item);
-            }
+      for (const item of allActiveItems) {
+        // Se já processou tudo, marcar como COMPLETED
+        if (item.processedImages >= item.totalImages && item.totalImages > 0) {
+          this.logger.log(
+            `Item ${item.laudoId} já está 100% processado (${item.processedImages}/${item.totalImages}). Marcando como COMPLETED.`,
+          );
+          item.status = AnalysisStatus.COMPLETED;
+          item.completedAt = new Date();
+          item.position = null;
+          await this.queueRepository.save(item);
+
+          // Atualizar o Laudo também
+          await this.laudoRepository.update(item.laudoId, { status: StatusLaudo.CONCLUIDO });
         }
-        // Recalcular posições
-        await this.recalculatePositions();
+        // Se estava PROCESSING mas não terminou, volta para PENDING
+        else if (item.status === AnalysisStatus.PROCESSING) {
+          this.logger.warn(
+            `Item ${item.laudoId} travado em PROCESSING (${item.processedImages}/${item.totalImages}). Retornando para PENDING.`,
+          );
+          item.status = AnalysisStatus.PENDING;
+          await this.queueRepository.save(item);
+        }
+      }
+      // Recalcular posições
+      await this.recalculatePositions();
     }
 
     // Registrar callback para quando RabbitMQ conectar
@@ -124,7 +122,7 @@ export class QueueService implements OnModuleInit {
         this.processingInterval = null;
         this.logger.log('⬆️ RabbitMQ conectou! Parando fallback de polling...');
       }
-      
+
       // Iniciar consumer RabbitMQ
       try {
         await this.rabbitMQService.consume(async (message: QueueMessage) => {
@@ -149,7 +147,11 @@ export class QueueService implements OnModuleInit {
   /**
    * Adiciona um laudo à fila de análise
    */
-  async addToQueue(laudoId: string, userId: string, force: boolean = false): Promise<AnalysisQueue> {
+  async addToQueue(
+    laudoId: string,
+    userId: string,
+    force: boolean = false,
+  ): Promise<AnalysisQueue> {
     // Verificar se já está na fila
     const existing = await this.queueRepository.findOne({
       where: { laudoId },
@@ -159,7 +161,7 @@ export class QueueService implements OnModuleInit {
       // Se force for true, permite reanalisar se não estiver PROCESSANDO
       if (force) {
         if (existing.status === AnalysisStatus.PROCESSING) {
-           throw new BadRequestException('Este laudo já está sendo analisado no momento');
+          throw new BadRequestException('Este laudo já está sendo analisado no momento');
         }
         // Se estiver em qualquer outro estado (COMPLETED, ERROR, CANCELLED, PAUSED, PENDING), removemos para reiniciar
         await this.queueRepository.remove(existing);
@@ -178,21 +180,24 @@ export class QueueService implements OnModuleInit {
 
     // Verificar se OpenAI está configurada
     if (!this.openaiService.isConfigured()) {
-      throw new BadRequestException('Análise por IA não está configurada. Contate o administrador.');
+      throw new BadRequestException(
+        'Análise por IA não está configurada. Contate o administrador.',
+      );
     }
 
     // LÓGICA FORCE: Resetar status de todas as imagens do laudo
     if (force) {
-        await this.imagemRepository.createQueryBuilder()
-            .update(ImagemLaudo)
-            .set({ 
-                imagemJaFoiAnalisadaPelaIa: 'nao',
-                // Opcional: limpar legenda também? Por enquanto manter a antiga até ser substituída
-            })
-            .where("laudoId = :laudoId", { laudoId })
-            .execute();
-            
-        this.logger.log(`[FORCE] Resetado status de imagens para laudo ${laudoId}`);
+      await this.imagemRepository
+        .createQueryBuilder()
+        .update(ImagemLaudo)
+        .set({
+          imagemJaFoiAnalisadaPelaIa: 'nao',
+          // Opcional: limpar legenda também? Por enquanto manter a antiga até ser substituída
+        })
+        .where('laudoId = :laudoId', { laudoId })
+        .execute();
+
+      this.logger.log(`[FORCE] Resetado status de imagens para laudo ${laudoId}`);
     }
 
     // Contar imagens não analisadas do laudo
@@ -229,7 +234,9 @@ export class QueueService implements OnModuleInit {
     });
 
     const saved = await this.queueRepository.save(queueItem);
-    this.logger.log(`Laudo ${laudoId} adicionado à fila na posição ${nextPosition} (Force: ${force})`);
+    this.logger.log(
+      `Laudo ${laudoId} adicionado à fila na posição ${nextPosition} (Force: ${force})`,
+    );
 
     // Enviar para RabbitMQ se conectado
     if (this.rabbitMQService.isConnected()) {
@@ -303,9 +310,8 @@ export class QueueService implements OnModuleInit {
       status: item.status,
       totalImages: item.totalImages,
       processedImages: item.processedImages,
-      progressPercentage: item.totalImages > 0 
-        ? Math.round((item.processedImages / item.totalImages) * 100) 
-        : 0,
+      progressPercentage:
+        item.totalImages > 0 ? Math.round((item.processedImages / item.totalImages) * 100) : 0,
       estimatedMinutes: Math.ceil(estimatedSeconds / 60),
     };
   }
@@ -334,9 +340,8 @@ export class QueueService implements OnModuleInit {
       position: item.position,
       totalImages: item.totalImages,
       processedImages: item.processedImages,
-      progressPercentage: item.totalImages > 0 
-        ? Math.round((item.processedImages / item.totalImages) * 100) 
-        : 0,
+      progressPercentage:
+        item.totalImages > 0 ? Math.round((item.processedImages / item.totalImages) * 100) : 0,
       createdAt: item.createdAt,
       startedAt: item.startedAt,
     }));
@@ -407,10 +412,10 @@ export class QueueService implements OnModuleInit {
     queueItem.status = AnalysisStatus.PROCESSING;
     queueItem.startedAt = new Date();
     await this.queueRepository.save(queueItem);
-    
+
     // Atualizar status do LAUDO para PROCESSANDO
     await this.laudoRepository.update(laudoId, { status: StatusLaudo.PROCESSANDO });
-    
+
     this.queueGateway.notifyStatusChange(laudoId, AnalysisStatus.PROCESSING);
 
     try {
@@ -453,28 +458,26 @@ export class QueueService implements OnModuleInit {
         // Processar imagem
         const processed = await this.processImage(nextImage, queueItem);
         if (!processed) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, this.metadataRetryDelayMs),
-          );
+          await new Promise((resolve) => setTimeout(resolve, this.metadataRetryDelayMs));
           continue;
         }
 
         // Atualizar progresso
         queueItem.processedImages += 1;
         await this.queueRepository.save(queueItem);
-        
+
         // Notify progress
         const percentage = Math.round((queueItem.processedImages / queueItem.totalImages) * 100);
         this.queueGateway.notifyProgress(laudoId, {
-            laudoId,
-            processedImages: queueItem.processedImages,
-            totalImages: queueItem.totalImages,
-            percentage,
+          laudoId,
+          processedImages: queueItem.processedImages,
+          totalImages: queueItem.totalImages,
+          percentage,
         });
       }
     } catch (error) {
       this.logger.error(`Erro ao processar laudo ${laudoId}: ${error.message}`);
-      
+
       // Recarregar item para verificar se foi pausado pelo handleCriticalError
       const updatedItem = await this.queueRepository.findOne({ where: { id: queueItem.id } });
       if (updatedItem?.status !== AnalysisStatus.PAUSED) {
@@ -517,10 +520,10 @@ export class QueueService implements OnModuleInit {
         currentItem.status = AnalysisStatus.PROCESSING;
         currentItem.startedAt = new Date();
         await this.queueRepository.save(currentItem);
-        
+
         // Atualizar status do LAUDO para PROCESSANDO
         await this.laudoRepository.update(currentItem.laudoId, { status: StatusLaudo.PROCESSANDO });
-        
+
         this.queueGateway.notifyStatusChange(currentItem.laudoId, AnalysisStatus.PROCESSING);
       }
 
@@ -538,30 +541,33 @@ export class QueueService implements OnModuleInit {
         currentItem.status = AnalysisStatus.COMPLETED;
         currentItem.completedAt = new Date();
         currentItem.position = null;
-        
+
         // Garantir que processados = total para coerência visual
-        currentItem.processedImages = currentItem.processedImages < currentItem.totalImages ? currentItem.totalImages : currentItem.processedImages;
+        currentItem.processedImages =
+          currentItem.processedImages < currentItem.totalImages
+            ? currentItem.totalImages
+            : currentItem.processedImages;
 
         await this.queueRepository.save(currentItem);
         await this.recalculatePositions();
-        
+
         // Atualizar status do LAUDO para CONCLUIDO
         await this.laudoRepository.update(currentItem.laudoId, { status: StatusLaudo.CONCLUIDO });
 
         this.logger.log(`Laudo ${currentItem.laudoId} análise concluída!`);
         this.queueGateway.notifyStatusChange(currentItem.laudoId, AnalysisStatus.COMPLETED);
         await this.notifyLaudoConcluido(currentItem.laudoId);
-         
-         // Enviar progresso 100% final
+
+        // Enviar progresso 100% final
         this.queueGateway.notifyProgress(currentItem.laudoId, {
-            laudoId: currentItem.laudoId,
-            processedImages: currentItem.totalImages,
-            totalImages: currentItem.totalImages,
-            percentage: 100,
+          laudoId: currentItem.laudoId,
+          processedImages: currentItem.totalImages,
+          totalImages: currentItem.totalImages,
+          percentage: 100,
         });
 
         this.isProcessing = false;
-        
+
         // Se tinha acabado, verifique se temos mais coisa na fila imediatamente
         setTimeout(() => this.processNextInQueue(), 1000);
         return;
@@ -579,20 +585,19 @@ export class QueueService implements OnModuleInit {
       }
 
       // Atualizar progresso
-       currentItem.processedImages += 1;
-       await this.queueRepository.save(currentItem);
-       
-       const percentage = Math.round((currentItem.processedImages / currentItem.totalImages) * 100);
-       this.queueGateway.notifyProgress(currentItem.laudoId, {
-           laudoId: currentItem.laudoId,
-           processedImages: currentItem.processedImages,
-           totalImages: currentItem.totalImages,
-           percentage,
-       });
+      currentItem.processedImages += 1;
+      await this.queueRepository.save(currentItem);
 
-       // Trigger next image processing immediately (chaining)
-       setTimeout(() => this.processNextInQueue(), 1000);
+      const percentage = Math.round((currentItem.processedImages / currentItem.totalImages) * 100);
+      this.queueGateway.notifyProgress(currentItem.laudoId, {
+        laudoId: currentItem.laudoId,
+        processedImages: currentItem.processedImages,
+        totalImages: currentItem.totalImages,
+        percentage,
+      });
 
+      // Trigger next image processing immediately (chaining)
+      setTimeout(() => this.processNextInQueue(), 1000);
     } catch (error) {
       this.logger.error(`Erro ao processar fila: ${error.message}`);
       if (currentItem) {
@@ -613,10 +618,7 @@ export class QueueService implements OnModuleInit {
   /**
    * Processa uma imagem individual
    */
-  private async processImage(
-    imagem: ImagemLaudo,
-    queueItem: AnalysisQueue,
-  ): Promise<boolean> {
+  private async processImage(imagem: ImagemLaudo, queueItem: AnalysisQueue): Promise<boolean> {
     // Verificar se foi cancelado
     const currentStatus = await this.queueRepository.findOne({
       where: { id: queueItem.id },
@@ -633,9 +635,7 @@ export class QueueService implements OnModuleInit {
     const tipoItem = imagem.tipo;
 
     if (!tipoAmbiente || !tipoItem) {
-      const createdAtMs = imagem.createdAt
-        ? new Date(imagem.createdAt).getTime()
-        : Date.now();
+      const createdAtMs = imagem.createdAt ? new Date(imagem.createdAt).getTime() : Date.now();
       const ageMs = Date.now() - createdAtMs;
       if (ageMs < this.metadataMaxWaitMs) {
         this.logAnalysis({
@@ -679,9 +679,7 @@ export class QueueService implements OnModuleInit {
         return false;
       }
       const matchUso =
-        !tipoUsoFormatado ||
-        !a.tiposUso?.length ||
-        a.tiposUso.includes(tipoUsoFormatado as any);
+        !tipoUsoFormatado || !a.tiposUso?.length || a.tiposUso.includes(tipoUsoFormatado as any);
       const matchImovel =
         !tipoImovelLaudo ||
         !a.tiposImovel?.length ||
@@ -704,12 +702,57 @@ export class QueueService implements OnModuleInit {
       return true;
     }
 
-    // Buscar item pelo nome (normalizado)
-    const itens = await this.itemRepository.find({
-      where: { ambienteId: ambiente.id },
+    const ambientesDoMesmoGrupo = ambiente.grupoId
+      ? ambientes.filter((a) => a.grupoId === ambiente.grupoId && a.ativo)
+      : [ambiente];
+    const ambienteIdsContexto = ambientesDoMesmoGrupo.map((a) => a.id);
+
+    const itensBrutos = await this.itemRepository.find({
+      where: {
+        ambienteId: In(ambienteIdsContexto),
+        ativo: true,
+        parentId: IsNull(),
+      },
       relations: ['filhos'],
     });
-    const item = itens.find((i) => textMatches(i.nome, tipoItem));
+
+    const itensPorNome = new Map<string, ItemAmbiente>();
+    for (const item of itensBrutos) {
+      const chave = normalizeForMatch(item.nome);
+      const atual = itensPorNome.get(chave);
+      if (!atual) {
+        itensPorNome.set(chave, item);
+        continue;
+      }
+
+      const filhosAtivosAtual = (atual.filhos || []).filter((f) => f.ativo).length;
+      const filhosAtivosNovo = (item.filhos || []).filter((f) => f.ativo).length;
+      if (filhosAtivosNovo > filhosAtivosAtual) {
+        itensPorNome.set(chave, item);
+        continue;
+      }
+
+      if (
+        filhosAtivosNovo === filhosAtivosAtual &&
+        (item.prompt || '').trim().length > (atual.prompt || '').trim().length
+      ) {
+        itensPorNome.set(chave, item);
+      }
+    }
+
+    const itens = Array.from(itensPorNome.values());
+    const tipoItemNormalizado = normalizeForMatch(tipoItem);
+    let item = itens.find((i) => textMatches(i.nome, tipoItem));
+
+    if (!item) {
+      item = itens.find((i) => {
+        const nomeItemNormalizado = normalizeForMatch(i.nome);
+        return (
+          nomeItemNormalizado.includes(tipoItemNormalizado) ||
+          tipoItemNormalizado.includes(nomeItemNormalizado)
+        );
+      });
+    }
 
     if (!item) {
       this.logAnalysis({
@@ -717,7 +760,7 @@ export class QueueService implements OnModuleInit {
         item: tipoItem,
         filho: null,
         promptEnviado: '(item não encontrado)',
-        resposta: `Item "${tipoItem}" não encontrado`,
+        resposta: `Item "${tipoItem}" não encontrado no ambiente "${ambiente.nome}"`,
         sucesso: false,
       });
       imagem.legenda = `Item "${tipoItem}" não encontrado`;
@@ -730,11 +773,13 @@ export class QueueService implements OnModuleInit {
     const imageUrl = await this.uploadsService.getSignedUrlForAi(imagem.s3Key);
 
     // Verificar se item tem filhos (precisa de análise em duas etapas)
-    if (item.filhos && item.filhos.length > 0) {
-      // PRIMEIRA ETAPA: identificar qual sub-item é
-      // Regra: NÃO adiciona prompt padrão ao prompt do pai quando tem filhos
-      const identifyPrompt = item.prompt;
-      
+    const filhosAtivos = (item.filhos || [])
+      .filter((filho) => filho.ativo)
+      .sort((a, b) => a.ordem - b.ordem);
+
+    if (filhosAtivos.length > 0) {
+      const identifyPrompt = this.buildTechnicalIdentifyPrompt(item.nome, filhosAtivos);
+
       this.logAnalysis({
         ambiente: ambiente.nome,
         item: item.nome,
@@ -745,10 +790,7 @@ export class QueueService implements OnModuleInit {
         etapa: 1,
       });
 
-      const identifyResult = await this.openaiService.analyzeImage(
-        imageUrl,
-        identifyPrompt,
-      );
+      const identifyResult = await this.openaiService.analyzeImage(imageUrl, identifyPrompt);
 
       if (!identifyResult.success) {
         // Verificar se é erro crítico que deve pausar a fila
@@ -773,31 +815,13 @@ export class QueueService implements OnModuleInit {
       }
 
       // Tentar identificar qual filho corresponde
-      const childNames = item.filhos.map((f) => f.nome);
-      const matchedChild = this.openaiService.identifyChildItem(
-        identifyResult.content,
-        childNames,
-      );
-
-      if (!matchedChild) {
-        // Não conseguiu identificar - usar resposta como referência
-        this.logAnalysis({
-          ambiente: ambiente.nome,
-          item: item.nome,
-          filho: '(não identificado)',
-          promptEnviado: identifyPrompt,
-          resposta: identifyResult.content,
-          sucesso: false,
-          etapa: 1,
-        });
-        imagem.legenda = 'Não identificado';
-        imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
-        await this.imagemRepository.save(imagem);
-        return true;
-      }
+      const childNames = filhosAtivos.map((f) => f.nome);
+      const matchedChild = this.openaiService.identifyChildItem(identifyResult.content, childNames);
 
       // Buscar prompt do filho
-      const childItem = item.filhos.find((f) => textMatches(f.nome, matchedChild));
+      const childItem = matchedChild
+        ? filhosAtivos.find((f) => textMatches(f.nome, matchedChild))
+        : filhosAtivos[0];
       if (!childItem) {
         imagem.legenda = 'Não identificado';
         imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
@@ -807,10 +831,10 @@ export class QueueService implements OnModuleInit {
 
       // SEGUNDA ETAPA: análise com prompt do filho
       // Regra: ADICIONA prompt padrão ao prompt do filho
-      const childPromptFinal = defaultPrompt 
-        ? `${defaultPrompt} ${childItem.prompt}` 
+      const childPromptFinal = defaultPrompt
+        ? `${defaultPrompt} ${childItem.prompt}`
         : childItem.prompt;
-      
+
       this.logAnalysis({
         ambiente: ambiente.nome,
         item: item.nome,
@@ -822,10 +846,7 @@ export class QueueService implements OnModuleInit {
         defaultPromptUsado: !!defaultPrompt,
       });
 
-      const finalResult = await this.openaiService.analyzeImage(
-        imageUrl,
-        childPromptFinal,
-      );
+      const finalResult = await this.openaiService.analyzeImage(imageUrl, childPromptFinal);
 
       if (finalResult.success) {
         this.logAnalysis({
@@ -838,9 +859,10 @@ export class QueueService implements OnModuleInit {
           etapa: 2,
           defaultPromptUsado: !!defaultPrompt,
         });
-        const suffix = imagem.avariaLocal && imagem.avariaLocal.trim() !== '' 
-          ? ' com detalhe apontado' 
-          : ' sem avarias aparentes';
+        const suffix =
+          imagem.avariaLocal && imagem.avariaLocal.trim() !== ''
+            ? ' com detalhe apontado'
+            : ' sem avarias aparentes';
         const maxContentLen = 200 - suffix.length;
         imagem.legenda = finalResult.content.substring(0, maxContentLen).trim() + suffix;
         imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
@@ -866,10 +888,8 @@ export class QueueService implements OnModuleInit {
     } else {
       // ITEM SEM FILHOS - análise direta
       // Regra: ADICIONA prompt padrão ao prompt do item
-      const promptFinal = defaultPrompt 
-        ? `${defaultPrompt} ${item.prompt}` 
-        : item.prompt;
-      
+      const promptFinal = defaultPrompt ? `${defaultPrompt} ${item.prompt}` : item.prompt;
+
       this.logAnalysis({
         ambiente: ambiente.nome,
         item: item.nome,
@@ -892,9 +912,10 @@ export class QueueService implements OnModuleInit {
           sucesso: true,
           defaultPromptUsado: !!defaultPrompt,
         });
-        const suffix = imagem.avariaLocal && imagem.avariaLocal.trim() !== '' 
-          ? ' com detalhe apontado' 
-          : ' sem avarias aparentes';
+        const suffix =
+          imagem.avariaLocal && imagem.avariaLocal.trim() !== ''
+            ? ' com detalhe apontado'
+            : ' sem avarias aparentes';
         const maxContentLen = 200 - suffix.length;
         imagem.legenda = result.content.substring(0, maxContentLen).trim() + suffix;
         imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
@@ -923,6 +944,11 @@ export class QueueService implements OnModuleInit {
     return true;
   }
 
+  private buildTechnicalIdentifyPrompt(nomeItemPai: string, filhos: ItemAmbiente[]): string {
+    const opcoes = filhos.map((filho) => `"${filho.nome}"`).join(', ');
+    return `Item base: "${nomeItemPai}". Selecione exatamente uma opção entre: ${opcoes}. Analise a imagem e escolha a opção que melhor representa o conteúdo, mesmo em caso de dúvida. Responda apenas com o nome exato da opção escolhida. Nunca responda fora das opções listadas.`;
+  }
+
   /**
    * Log colorido e estruturado para análise de imagens
    */
@@ -936,8 +962,9 @@ export class QueueService implements OnModuleInit {
     etapa?: number;
     defaultPromptUsado?: boolean;
   }): void {
-    const { ambiente, item, filho, promptEnviado, resposta, sucesso, etapa, defaultPromptUsado } = params;
-    
+    const { ambiente, item, filho, promptEnviado, resposta, sucesso, etapa, defaultPromptUsado } =
+      params;
+
     // Cores ANSI
     const reset = '\x1b[0m';
     const bold = '\x1b[1m';
@@ -949,20 +976,17 @@ export class QueueService implements OnModuleInit {
     const blue = '\x1b[34m';
     const bgBlue = '\x1b[44m';
     const white = '\x1b[37m';
-    
+
     const statusColor = sucesso ? green : red;
     const statusIcon = sucesso ? '✅' : '❌';
     const etapaLabel = etapa ? ` (Etapa ${etapa}/2)` : '';
     const defaultLabel = defaultPromptUsado ? `${magenta}[+PROMPT PADRÃO]${reset} ` : '';
-    
+
     // Truncar prompt e resposta para log legível
-    const promptTruncado = promptEnviado.length > 150 
-      ? promptEnviado.substring(0, 150) + '...' 
-      : promptEnviado;
-    const respostaTruncada = resposta.length > 200 
-      ? resposta.substring(0, 200) + '...' 
-      : resposta;
-    
+    const promptTruncado =
+      promptEnviado.length > 150 ? promptEnviado.substring(0, 150) + '...' : promptEnviado;
+    const respostaTruncada = resposta.length > 200 ? resposta.substring(0, 200) + '...' : resposta;
+
     console.log(`
 ${bgBlue}${white}${bold}╔══════════════════════════════════════════════════════════════════════╗${reset}
 ${bgBlue}${white}${bold}║  🖼️  ANÁLISE DE IMAGEM${etapaLabel}                                          ${reset}
@@ -1049,14 +1073,8 @@ ${bgBlue}${white}${bold}╚═════════════════�
     this.logger.error(`🛑 PAUSANDO FILA GLOBAL: ${reason}`);
 
     // Salvar estado de pausa
-    await this.configRepository.upsert(
-      { key: 'queue_paused', value: 'true' },
-      ['key'],
-    );
-    await this.configRepository.upsert(
-      { key: 'queue_paused_reason', value: reason },
-      ['key'],
-    );
+    await this.configRepository.upsert({ key: 'queue_paused', value: 'true' }, ['key']);
+    await this.configRepository.upsert({ key: 'queue_paused_reason', value: reason }, ['key']);
 
     // Mudar todos itens PENDING e PROCESSING para PAUSED
     await this.queueRepository.update(
@@ -1104,10 +1122,7 @@ ${bgBlue}${white}${bold}╚═════════════════�
     }
 
     // Limpar estado de pausa
-    await this.configRepository.upsert(
-      { key: 'queue_paused', value: 'false' },
-      ['key'],
-    );
+    await this.configRepository.upsert({ key: 'queue_paused', value: 'false' }, ['key']);
     await this.configRepository.delete({ key: 'queue_paused_reason' });
 
     // Recalcular posições
@@ -1128,4 +1143,3 @@ ${bgBlue}${white}${bold}╚═════════════════�
     await this.pauseQueue(errorMessage);
   }
 }
-

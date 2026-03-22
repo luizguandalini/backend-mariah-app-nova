@@ -493,16 +493,18 @@ export class OpenAIService implements OnModuleInit {
     aiResponse: string,
     childOptions: string[],
   ): string | null {
+    if (!Array.isArray(childOptions) || childOptions.length === 0) {
+      return null;
+    }
+
     const keywords = extractKeywords(aiResponse);
 
-    // Primeiro, tentar match exato
     for (const option of childOptions) {
       if (findBestMatch(aiResponse, [option])) {
         return option;
       }
     }
 
-    // Segundo, tentar match por keywords
     for (const keyword of keywords) {
       const match = findBestMatch(keyword, childOptions);
       if (match) {
@@ -510,7 +512,6 @@ export class OpenAIService implements OnModuleInit {
       }
     }
 
-    // Terceiro, tentar match parcial (contém)
     const normalizedResponse = normalizeForMatch(aiResponse);
     for (const option of childOptions) {
       const normalizedOption = normalizeForMatch(option);
@@ -522,6 +523,26 @@ export class OpenAIService implements OnModuleInit {
       }
     }
 
-    return null;
+    const responseTokens = new Set(keywords.map((k) => normalizeForMatch(k)));
+    const scoredOptions = childOptions.map((option) => {
+      const optionNormalized = normalizeForMatch(option);
+      const optionKeywords = extractKeywords(option).map((k) => normalizeForMatch(k));
+      const overlap = optionKeywords.filter((token) => responseTokens.has(token)).length;
+
+      let score = overlap * 10;
+      if (normalizedResponse.includes(optionNormalized)) {
+        score += 100;
+      }
+      for (const token of optionKeywords) {
+        if (token && normalizedResponse.includes(token)) {
+          score += 3;
+        }
+      }
+
+      return { option, score };
+    });
+
+    scoredOptions.sort((a, b) => b.score - a.score);
+    return scoredOptions[0]?.option || childOptions[0];
   }
 }
