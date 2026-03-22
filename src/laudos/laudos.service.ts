@@ -23,6 +23,18 @@ import { ImagensPdfResponseDto, ImagemPdfDto } from './dto/imagens-pdf-response.
 import { UploadsService } from '../uploads/uploads.service';
 import { RabbitMQService } from '../queue/rabbitmq.service';
 
+export interface PaginatedLaudosResult {
+  data: LaudoListItem[];
+  total: number;
+  page: number;
+  lastPage: number;
+}
+
+export type LaudoListItem = Partial<Laudo> & {
+  usuarioNome?: string;
+  usuarioEmail?: string;
+};
+
 @Injectable()
 export class LaudosService {
   constructor(
@@ -42,9 +54,13 @@ export class LaudosService {
 
   // ... (métodos existentes)
 
-  async requestPdfGeneration(laudoId: string, userId: string, userRole: UserRole): Promise<{ message: string, status: string }> {
+  async requestPdfGeneration(
+    laudoId: string,
+    userId: string,
+    userRole: UserRole,
+  ): Promise<{ message: string; status: string }> {
     const laudo = await this.findOne(laudoId);
-    
+
     // Verificar permissão
     const isOwner = laudo.usuarioId === userId;
     const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
@@ -55,47 +71,45 @@ export class LaudosService {
 
     // Verificar se já está processando ou pendente na fila
     if (laudo.pdfStatus === 'PROCESSING' || laudo.pdfStatus === 'PENDING') {
-        throw new BadRequestException('O PDF já está sendo gerado ou está na fila. Aguarde.');
+      throw new BadRequestException('O PDF já está sendo gerado ou está na fila. Aguarde.');
     }
 
     // Se já foi gerado e está completed, talvez queiramos regenerar?
     // O usuário clicou em "Baixar Laudo" no front. Se tiver URL, o front baixa direto.
     // Se o front chamou esse endpoint, é porque quer gerar/regenerar.
-    
+
     // Atualizar status para PENDING
     // NÃO limpamos pdfUrl aqui para que o PdfService possa acessar a URL antiga
     // e deletar o arquivo antigo do S3 após gerar o novo com sucesso
     await this.laudoRepository.update(laudoId, {
-        pdfStatus: 'PENDING',
-        pdfProgress: 0,
-        // pdfUrl mantido para deleção do antigo
+      pdfStatus: 'PENDING',
+      pdfProgress: 0,
+      // pdfUrl mantido para deleção do antigo
     });
-    
+
     // Adicionar à fila
     const success = await this.rabbitMQService.addToPdfQueue({
-        laudoId,
-        usuarioId: userId,
-        priority: 5 // Prioridade padrão
+      laudoId,
+      usuarioId: userId,
+      priority: 5, // Prioridade padrão
     });
-    
+
     if (!success) {
-         // Reverter status se falhar ao enfileirar
-         await this.laudoRepository.update(laudoId, {
-            pdfStatus: 'ERROR',
-            pdfProgress: 0
-        });
-        throw new BadRequestException('Erro ao enfileirar pedido de PDF. Tente novamente.');
+      // Reverter status se falhar ao enfileirar
+      await this.laudoRepository.update(laudoId, {
+        pdfStatus: 'ERROR',
+        pdfProgress: 0,
+      });
+      throw new BadRequestException('Erro ao enfileirar pedido de PDF. Tente novamente.');
     }
-    
+
     return {
-        message: 'Solicitação de PDF enviada com sucesso',
-        status: 'PENDING'
+      message: 'Solicitação de PDF enviada com sucesso',
+      status: 'PENDING',
     };
   }
 
   // ... (rest of methods)
-
-
 
   async remove(id: string, user: any): Promise<void> {
     const laudo = await this.findOne(id);
@@ -112,11 +126,11 @@ export class LaudosService {
       // 1. Calcular quantos créditos devolver (imagens não analisadas)
       // Apenas devolve se não for ADMIN/DEV (pois eles têm ilimitado)
       if (![UserRole.DEV, UserRole.ADMIN].includes(user.role)) {
-         const refundableImagesCount = await this.imagemRepository.count({
-          where: { 
+        const refundableImagesCount = await this.imagemRepository.count({
+          where: {
             laudoId: id,
-            imagemJaFoiAnalisadaPelaIa: 'nao'
-          }
+            imagemJaFoiAnalisadaPelaIa: 'nao',
+          },
         });
 
         if (refundableImagesCount > 0) {
@@ -152,7 +166,7 @@ export class LaudosService {
       // Nota: Idealmente faríamos isso fora da transaction do banco se quiséssemos atomicidade rigorosa do banco vs falha S3,
       // mas aqui queremos garantir que o banco só muda se tudo correr "bem" ou pelo menos iniciarmos o processo.
       // Como o delete do S3 não é transacional com o banco, se falhar o S3, o banco pode rollbackar ou não dependendo de onde colocarmos.
-      // O requisito diz "solução robusta". 
+      // O requisito diz "solução robusta".
       // Se colocarmos o S3 delete ANTES do remove do banco mas DENTRO da transaction function, se o S3 der erro (throw), a transaction do banco nem commita.
       // Porém, o S3 delete pode demorar. Vamos manter a chamada await aqui.
       await this.uploadsService.deleteImagensByLaudo(id);
@@ -195,26 +209,105 @@ export class LaudosService {
     return await this.laudoRepository.save(laudo);
   }
 
-  async findAll(): Promise<Partial<Laudo>[]> {
-    const laudos = await this.laudoRepository.find({
+  async findAll(
+    page: number = 1,
+    limit: number = 15,
+    status?: string,
+  ): Promise<PaginatedLaudosResult> {
+    const sanitizedPage = Math.max(1, Number(page) || 1);
+    const sanitizedLimit = Math.max(1, Math.min(100, Number(limit) || 15));
+    const statusFilter = this.parseStatusFilter(status);
+
+    const [laudos, total] = await this.laudoRepository.findAndCount({
+      where: statusFilter ? { status: statusFilter } : {},
       relations: ['usuario'],
       order: { createdAt: 'DESC' },
+      skip: (sanitizedPage - 1) * sanitizedLimit,
+      take: sanitizedLimit,
     });
+
     if (laudos.length === 0) {
-      return [];
+      return {
+        data: [],
+        total,
+        page: sanitizedPage,
+        lastPage: 0,
+      };
     }
 
-    const laudosIds = laudos.map((l) => l.id);
+    const statsMap = await this.getLaudoImageStatsMap(laudos.map((l) => l.id));
 
-    // Consulta agregada eficiente para contar imagens e imagens não analisadas
-    // Usando batches para não estourar limite de parametros se houver muitos laudos
+    return {
+      data: laudos.map((l) => this.mapLaudoListItem(l, statsMap, true)),
+      total,
+      page: sanitizedPage,
+      lastPage: Math.ceil(total / sanitizedLimit),
+    };
+  }
+
+  async findByUsuario(
+    usuarioId: string,
+    page: number = 1,
+    limit: number = 10,
+    status?: string,
+  ): Promise<PaginatedLaudosResult> {
+    const sanitizedPage = Math.max(1, Number(page) || 1);
+    const sanitizedLimit = Math.max(1, Math.min(100, Number(limit) || 10));
+    const statusFilter = this.parseStatusFilter(status);
+    const where = statusFilter ? { usuarioId, status: statusFilter } : { usuarioId };
+
+    const [laudos, total] = await this.laudoRepository.findAndCount({
+      where,
+      order: { createdAt: 'DESC' },
+      skip: (sanitizedPage - 1) * sanitizedLimit,
+      take: sanitizedLimit,
+    });
+
+    if (laudos.length === 0) {
+      return {
+        data: [],
+        total,
+        page: sanitizedPage,
+        lastPage: 0,
+      };
+    }
+
+    const statsMap = await this.getLaudoImageStatsMap(laudos.map((l) => l.id));
+
+    return {
+      data: laudos.map((l) => this.mapLaudoListItem(l, statsMap)),
+      total,
+      page: sanitizedPage,
+      lastPage: Math.ceil(total / sanitizedLimit),
+    };
+  }
+
+  private parseStatusFilter(status?: string): StatusLaudo | undefined {
+    if (!status) {
+      return undefined;
+    }
+
+    const normalizedStatus = String(status).toLowerCase() as StatusLaudo;
+    const validStatuses = Object.values(StatusLaudo);
+
+    if (!validStatuses.includes(normalizedStatus)) {
+      throw new BadRequestException('Status de laudo inválido');
+    }
+
+    return normalizedStatus;
+  }
+
+  private async getLaudoImageStatsMap(laudosIds: string[]) {
     const statsMap = new Map<string, { total: number; unanalyzed: number }>();
-    
-    // Processar em chunks de 500 ids
+
+    if (laudosIds.length === 0) {
+      return statsMap;
+    }
+
     const chunkSize = 500;
     for (let i = 0; i < laudosIds.length; i += chunkSize) {
       const chunk = laudosIds.slice(i, i + chunkSize);
-      
+
       const statsQuery = await this.imagemRepository
         .createQueryBuilder('img')
         .select('img.laudo_id', 'laudoId')
@@ -235,135 +328,57 @@ export class LaudosService {
       });
     }
 
-    return laudos.map((l) => {
-      let smartStatus = l.status;
-      const stats = statsMap.get(l.id) || { total: 0, unanalyzed: 0 };
-
-      // Se tem URL de PDF, consideramos concluído
-      if (l.pdfUrl) {
-        smartStatus = StatusLaudo.CONCLUIDO;
-      }
-      // Se não está concluído, mas todas as imagens (pelo menos 1) foram analisadas
-      else if (
-        smartStatus === StatusLaudo.NAO_INICIADO &&
-        stats.total > 0 &&
-        stats.unanalyzed === 0
-      ) {
-        smartStatus = StatusLaudo.CONCLUIDO;
-      }
-
-      return {
-        id: l.id,
-        usuarioId: l.usuarioId,
-        usuarioNome: l.usuario?.nome || 'Usuário desconhecido',
-        usuarioEmail: l.usuario?.email || '',
-        endereco: l.endereco,
-        rua: l.rua,
-        numero: l.numero,
-        complemento: l.complemento,
-        bairro: l.bairro,
-        cidade: l.cidade,
-        estado: l.estado,
-        cep: l.cep,
-        tipoVistoria: l.tipoVistoria,
-        tipoUso: l.tipoUso,
-        tipoImovel: l.tipoImovel,
-        tipo: l.tipo,
-        unidade: l.unidade,
-        status: smartStatus,
-        tamanho: l.tamanho,
-        pdfUrl: l.pdfUrl,
-        totalAmbientes: l.totalAmbientes,
-        totalFotos: l.totalFotos,
-        latitude: l.latitude,
-        longitude: l.longitude,
-        enderecoCompletoGps: l.enderecoCompletoGps,
-        incluirAtestado: l.incluirAtestado,
-        createdAt: l.createdAt,
-        updatedAt: l.updatedAt,
-      };
-    });
+    return statsMap;
   }
 
-   async findByUsuario(usuarioId: string): Promise<Partial<Laudo>[]> {
-    const laudos = await this.laudoRepository.find({
-      where: { usuarioId },
-      order: { createdAt: 'DESC' },
-    });
+  private mapLaudoListItem(
+    laudo: Laudo,
+    statsMap: Map<string, { total: number; unanalyzed: number }>,
+    includeUsuarioData: boolean = false,
+  ): LaudoListItem {
+    let smartStatus = laudo.status;
+    const stats = statsMap.get(laudo.id) || { total: 0, unanalyzed: 0 };
 
-    if (laudos.length === 0) {
-      return [];
+    if (laudo.pdfUrl) {
+      smartStatus = StatusLaudo.CONCLUIDO;
+    } else if (
+      smartStatus === StatusLaudo.NAO_INICIADO &&
+      stats.total > 0 &&
+      stats.unanalyzed === 0
+    ) {
+      smartStatus = StatusLaudo.CONCLUIDO;
     }
 
-    const laudosIds = laudos.map((l) => l.id);
-
-    // Consulta agregada eficiente para contar imagens e imagens não analisadas
-    const statsQuery = await this.imagemRepository
-      .createQueryBuilder('img')
-      .select('img.laudo_id', 'laudoId')
-      .addSelect('COUNT(*)', 'total')
-      .addSelect(
-        "SUM(CASE WHEN img.imagem_ja_foi_analisada_pela_ia = 'nao' THEN 1 ELSE 0 END)",
-        'unanalyzed',
-      )
-      .where('img.laudo_id IN (:...ids)', { ids: laudosIds })
-      .groupBy('img.laudo_id')
-      .getRawMany();
-
-    const statsMap = new Map<string, { total: number; unanalyzed: number }>();
-    statsQuery.forEach((s) => {
-      statsMap.set(s.laudoId, {
-        total: Number(s.total),
-        unanalyzed: Number(s.unanalyzed),
-      });
-    });
-
-    return laudos.map((l) => {
-      let smartStatus = l.status;
-      const stats = statsMap.get(l.id) || { total: 0, unanalyzed: 0 };
-
-      // Se tem URL de PDF, consideramos concluído
-      if (l.pdfUrl) {
-        smartStatus = StatusLaudo.CONCLUIDO;
-      }
-      // Se não está concluído, mas todas as imagens (pelo menos 1) foram analisadas
-      else if (
-        smartStatus === StatusLaudo.NAO_INICIADO &&
-        stats.total > 0 &&
-        stats.unanalyzed === 0
-      ) {
-        smartStatus = StatusLaudo.CONCLUIDO;
-      }
-
-      return {
-        id: l.id,
-        usuarioId: l.usuarioId,
-        endereco: l.endereco,
-        rua: l.rua,
-        numero: l.numero,
-        complemento: l.complemento,
-        bairro: l.bairro,
-        cidade: l.cidade,
-        estado: l.estado,
-        cep: l.cep,
-        tipoVistoria: l.tipoVistoria,
-        tipoUso: l.tipoUso,
-        tipoImovel: l.tipoImovel,
-        tipo: l.tipo,
-        unidade: l.unidade,
-        status: smartStatus,
-        tamanho: l.tamanho,
-        pdfUrl: l.pdfUrl,
-        totalAmbientes: l.totalAmbientes,
-        totalFotos: l.totalFotos,
-        latitude: l.latitude,
-        longitude: l.longitude,
-        enderecoCompletoGps: l.enderecoCompletoGps,
-        incluirAtestado: l.incluirAtestado,
-        createdAt: l.createdAt,
-        updatedAt: l.updatedAt,
-      };
-    });
+    return {
+      id: laudo.id,
+      usuarioId: laudo.usuarioId,
+      usuarioNome: includeUsuarioData ? laudo.usuario?.nome || 'Usuário desconhecido' : undefined,
+      usuarioEmail: includeUsuarioData ? laudo.usuario?.email || '' : undefined,
+      endereco: laudo.endereco,
+      rua: laudo.rua,
+      numero: laudo.numero,
+      complemento: laudo.complemento,
+      bairro: laudo.bairro,
+      cidade: laudo.cidade,
+      estado: laudo.estado,
+      cep: laudo.cep,
+      tipoVistoria: laudo.tipoVistoria,
+      tipoUso: laudo.tipoUso,
+      tipoImovel: laudo.tipoImovel,
+      tipo: laudo.tipo,
+      unidade: laudo.unidade,
+      status: smartStatus,
+      tamanho: laudo.tamanho,
+      pdfUrl: laudo.pdfUrl,
+      totalAmbientes: laudo.totalAmbientes,
+      totalFotos: laudo.totalFotos,
+      latitude: laudo.latitude,
+      longitude: laudo.longitude,
+      enderecoCompletoGps: laudo.enderecoCompletoGps,
+      incluirAtestado: laudo.incluirAtestado,
+      createdAt: laudo.createdAt,
+      updatedAt: laudo.updatedAt,
+    };
   }
 
   async findOne(id: string): Promise<Laudo> {
@@ -398,9 +413,7 @@ export class LaudosService {
     const isAdminOrDev = user.role === UserRole.ADMIN || user.role === UserRole.DEV;
 
     if (!isOwner && !isAdminOrDev) {
-      throw new UnauthorizedException(
-        'Você não tem permissão para editar este laudo',
-      );
+      throw new UnauthorizedException('Você não tem permissão para editar este laudo');
     }
 
     // Validar todas as opções fornecidas
@@ -454,9 +467,7 @@ export class LaudosService {
     const isAdminOrDev = user.role === UserRole.ADMIN || user.role === UserRole.DEV;
 
     if (!isOwner && !isAdminOrDev) {
-      throw new UnauthorizedException(
-        'Você não tem permissão para editar este laudo',
-      );
+      throw new UnauthorizedException('Você não tem permissão para editar este laudo');
     }
 
     // Atualizar apenas os campos de endereço fornecidos
@@ -484,16 +495,10 @@ export class LaudosService {
     }
 
     // Atualizar campo endereco completo para compatibilidade
-    const enderecoCompleto = [
-      laudo.rua,
-      laudo.numero,
-      laudo.bairro,
-      laudo.cidade,
-      laudo.estado,
-    ]
+    const enderecoCompleto = [laudo.rua, laudo.numero, laudo.bairro, laudo.cidade, laudo.estado]
       .filter(Boolean)
       .join(', ');
-    
+
     if (enderecoCompleto) {
       laudo.endereco = enderecoCompleto;
     }
@@ -504,9 +509,7 @@ export class LaudosService {
   /**
    * Valida se todos os valores fornecidos existem como opções cadastradas
    */
-  private async validateLaudoDetalhes(
-    updateDto: UpdateLaudoDetalhesDto,
-  ): Promise<void> {
+  private async validateLaudoDetalhes(updateDto: UpdateLaudoDetalhesDto): Promise<void> {
     const valuesToValidate: string[] = [];
 
     // Coletar todos os valores não-vazios
@@ -544,9 +547,7 @@ export class LaudosService {
     const validTexts = new Set(validOptions.map((opt) => opt.optionText));
 
     // Verificar se todos os valores fornecidos são válidos
-    const invalidValues = valuesToValidate.filter(
-      (value) => !validTexts.has(value),
-    );
+    const invalidValues = valuesToValidate.filter((value) => !validTexts.has(value));
 
     if (invalidValues.length > 0) {
       throw new BadRequestException(
@@ -560,8 +561,6 @@ export class LaudosService {
     Object.assign(laudo, updateLaudoDto);
     return await this.laudoRepository.save(laudo);
   }
-
-
 
   async getDashboardStats(usuarioId: string): Promise<DashboardStatsDto> {
     const usuario = await this.usuarioRepository.findOne({
@@ -652,9 +651,7 @@ export class LaudosService {
     const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
 
     if (!isOwner && !isAdminOrDev) {
-      throw new ForbiddenException(
-        'Você não tem permissão para visualizar as imagens deste laudo',
-      );
+      throw new ForbiddenException('Você não tem permissão para visualizar as imagens deste laudo');
     }
 
     // Buscar TODAS as imagens ordenadas por ambiente e ordem
@@ -719,7 +716,7 @@ export class LaudosService {
     // Mapear imagens com numeração
     const imagensComNumeracao: ImagemPdfDto[] = imagensPaginadas.map((img, index) => {
       const infoAmbiente = ambientesMap.get(img.ambiente);
-      
+
       // Recontar imagens deste ambiente até esta posição
       const posDaImagemNoArray = inicio + index;
       let contadorImagemNoAmbiente = 0;

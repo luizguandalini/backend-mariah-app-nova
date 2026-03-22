@@ -20,7 +20,7 @@ import {
   ApiParam,
   ApiQuery,
 } from '@nestjs/swagger';
-import { LaudosService } from './laudos.service';
+import { LaudosService, PaginatedLaudosResult } from './laudos.service';
 import { CreateLaudoDto } from './dto/create-laudo.dto';
 import { UpdateLaudoDto } from './dto/update-laudo.dto';
 import { UpdateLaudoDetalhesDto } from './dto/update-laudo-detalhes.dto';
@@ -71,17 +71,37 @@ export class LaudosController {
 
   @Get('me')
   @ApiOperation({ summary: 'Listar todos os laudos do usuário logado' })
+  @ApiQuery({ name: 'page', required: false, description: 'Número da página (padrão: 1)' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Quantidade por página (padrão: 10)' })
+  @ApiQuery({ name: 'status', required: false, description: 'Filtrar por status do laudo' })
   @ApiResponse({ status: 200, description: 'Lista de laudos retornada com sucesso' })
-  async findMyLaudos(@CurrentUser() user: any): Promise<Partial<Laudo>[]> {
-    return await this.laudosService.findByUsuario(user.id);
+  async findMyLaudos(
+    @CurrentUser() user: any,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 10,
+    @Query('status') status?: string,
+  ): Promise<PaginatedLaudosResult> {
+    return await this.laudosService.findByUsuario(
+      user.id,
+      Number(page),
+      Number(limit),
+      status,
+    );
   }
 
   @Get()
   @Roles(UserRole.DEV, UserRole.ADMIN)
   @ApiOperation({ summary: 'Listar todos os laudos (DEV/ADMIN)' })
+  @ApiQuery({ name: 'page', required: false, description: 'Número da página (padrão: 1)' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Quantidade por página (padrão: 15)' })
+  @ApiQuery({ name: 'status', required: false, description: 'Filtrar por status do laudo' })
   @ApiResponse({ status: 200, description: 'Lista retornada com sucesso' })
-  async findAll(): Promise<Partial<Laudo>[]> {
-    return await this.laudosService.findAll();
+  async findAll(
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 15,
+    @Query('status') status?: string,
+  ): Promise<PaginatedLaudosResult> {
+    return await this.laudosService.findAll(Number(page), Number(limit), status);
   }
 
   @Get(':id')
