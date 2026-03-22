@@ -72,17 +72,15 @@ export class AmbientesService {
     limit: number = 10,
     offset: number = 0,
   ): Promise<{ data: any[]; total: number; hasMore: boolean }> {
-    // Buscar todos os ambientes ativos (SEM itens - frontend faz lazy-loading)
     const allAmbientes = await this.ambienteRepository.find({
       where: { ativo: true },
       order: { ordem: 'ASC', nome: 'ASC' },
     });
 
-    // Montar árvore SEM buscar itens (apenas agrupamento de grupos)
-    const allTree = this.buildAmbientesTreeWithoutItems(allAmbientes);
+    const statsPorAmbiente = await this.getItemStatsByAmbienteIds(allAmbientes.map((a) => a.id));
+    const allTree = this.buildAmbientesTreeWithoutItems(allAmbientes, statsPorAmbiente);
     const total = allTree.length;
 
-    // Paginar a árvore construída
     const paginatedTree = allTree.slice(offset, offset + limit);
     const hasMore = offset + limit < total;
 
@@ -93,16 +91,73 @@ export class AmbientesService {
     };
   }
 
-  /**
-   * Monta a árvore de ambientes SEM buscar itens (0 queries adicionais).
-   * Usado pelo endpoint paginado, onde o frontend faz lazy-loading dos itens.
-   */
-  private buildAmbientesTreeWithoutItems(ambientes: Ambiente[]): any[] {
+  private async getItemStatsByAmbienteIds(
+    ambienteIds: string[],
+  ): Promise<
+    Map<
+      string,
+      { totalItensPai: number; totalItensSemPrompt: number; totalItensValidosApp: number }
+    >
+  > {
+    const mapa = new Map<
+      string,
+      { totalItensPai: number; totalItensSemPrompt: number; totalItensValidosApp: number }
+    >();
+
+    if (ambienteIds.length === 0) {
+      return mapa;
+    }
+
+    const rows = await this.ambienteRepository.manager
+      .createQueryBuilder()
+      .select('item.ambiente_id', 'ambienteId')
+      .addSelect('COUNT(*)', 'totalItensPai')
+      .addSelect(
+        "SUM(CASE WHEN LENGTH(TRIM(COALESCE(item.prompt, ''))) = 0 THEN 1 ELSE 0 END)",
+        'totalItensSemPrompt',
+      )
+      .from('itens_ambiente', 'item')
+      .where('item.ativo = :ativo', { ativo: true })
+      .andWhere('item.parent_id IS NULL')
+      .andWhere('item.ambiente_id IN (:...ambienteIds)', { ambienteIds })
+      .groupBy('item.ambiente_id')
+      .getRawMany<{
+        ambienteId: string;
+        totalItensPai: string;
+        totalItensSemPrompt: string;
+      }>();
+
+    for (const row of rows) {
+      const totalItensPai = Number(row.totalItensPai || 0);
+      const totalItensSemPrompt = Number(row.totalItensSemPrompt || 0);
+      mapa.set(row.ambienteId, {
+        totalItensPai,
+        totalItensSemPrompt,
+        totalItensValidosApp: Math.max(totalItensPai - totalItensSemPrompt, 0),
+      });
+    }
+
+    return mapa;
+  }
+
+  private buildAmbientesTreeWithoutItems(
+    ambientes: Ambiente[],
+    statsPorAmbiente: Map<
+      string,
+      { totalItensPai: number; totalItensSemPrompt: number; totalItensValidosApp: number }
+    >,
+  ): any[] {
     const grupos = new Map<string, any>();
     const gruposProcessados = new Set<string>();
     const resultado: any[] = [];
 
     for (const ambiente of ambientes) {
+      const stats = statsPorAmbiente.get(ambiente.id) || {
+        totalItensPai: 0,
+        totalItensSemPrompt: 0,
+        totalItensValidosApp: 0,
+      };
+
       if (ambiente.grupoId) {
         if (!gruposProcessados.has(ambiente.grupoId)) {
           if (!grupos.has(ambiente.grupoId)) {
@@ -118,6 +173,9 @@ export class AmbientesService {
               ativo: ambiente.ativo,
               ordem: ambiente.ordem,
               itens: [],
+              totalItensPai: stats.totalItensPai,
+              totalItensSemPrompt: stats.totalItensSemPrompt,
+              totalItensValidosApp: stats.totalItensValidosApp,
               createdAt: ambiente.createdAt,
               updatedAt: ambiente.updatedAt,
             });
@@ -141,11 +199,17 @@ export class AmbientesService {
           });
           grupo.nomes.push(ambiente.nome);
           grupo.nome = grupo.nomes.join(' + ');
+          grupo.totalItensPai += stats.totalItensPai;
+          grupo.totalItensSemPrompt += stats.totalItensSemPrompt;
+          grupo.totalItensValidosApp += stats.totalItensValidosApp;
         }
       } else {
         resultado.push({
           ...ambiente,
           itens: [],
+          totalItensPai: stats.totalItensPai,
+          totalItensSemPrompt: stats.totalItensSemPrompt,
+          totalItensValidosApp: stats.totalItensValidosApp,
           isGrupo: false,
         });
       }
@@ -164,6 +228,16 @@ export class AmbientesService {
       .where('ambiente.ativo = :ativo', { ativo: true })
       .andWhere('COALESCE(array_length(ambiente.tipos_uso, 1), 0) > 0')
       .andWhere('COALESCE(array_length(ambiente.tipos_imovel, 1), 0) > 0')
+      .andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM itens_ambiente item
+          WHERE item.ambiente_id = ambiente.id
+            AND item.ativo = true
+            AND item.parent_id IS NULL
+            AND LENGTH(TRIM(COALESCE(item.prompt, ''))) > 0
+        )`,
+      )
       .orderBy('ambiente.nome', 'ASC')
       .getMany();
 
@@ -215,8 +289,9 @@ export class AmbientesService {
     for (const ambiente of ambientesParaBuscar) {
       const itens = await this.itensAmbienteService.findAllByAmbiente(ambiente.id);
 
-      // Filtrar apenas itens PAI (parentId = null) e ativos
-      const itensPai = itens.filter((item) => !item.parentId && item.ativo);
+      const itensPai = itens.filter(
+        (item) => !item.parentId && item.ativo && (item.prompt || '').trim().length > 0,
+      );
 
       // Consolidar itens únicos por nome
       for (const item of itensPai) {
@@ -254,7 +329,7 @@ export class AmbientesService {
       .leftJoinAndSelect(
         'ambiente.itens',
         'item',
-        'item.ativo = :itemAtivo AND item.parentId IS NULL',
+        "item.ativo = :itemAtivo AND item.parentId IS NULL AND LENGTH(TRIM(COALESCE(item.prompt, ''))) > 0",
         { itemAtivo: true },
       )
       .where('ambiente.ativo = :ativo', { ativo: true })
@@ -328,6 +403,10 @@ export class AmbientesService {
             ordem: item.ordem,
           }))
           .sort((a, b) => a.ordem - b.ordem);
+      }
+
+      if (itensFinais.length === 0) {
+        continue;
       }
 
       // Adicionar ao mapa de ambientes
