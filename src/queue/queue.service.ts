@@ -702,7 +702,8 @@ export class QueueService implements OnModuleInit {
       return true;
     }
 
-    const isAvariaImage = !!imagem.avariaLocal?.trim();
+    const isAvariaImage = (imagem.categoria || '').trim().toUpperCase() === 'AVARIA';
+    const hasDetalheApontado = this.hasDetalheApontado(imagem);
     const imageUrl = await this.uploadsService.getSignedUrlForAi(imagem.s3Key);
 
     if (isAvariaImage) {
@@ -748,9 +749,7 @@ export class QueueService implements OnModuleInit {
           sucesso: true,
           defaultPromptUsado: !!defaultPrompt.trim(),
         });
-        const suffix = ' com detalhe apontado';
-        const maxContentLen = 200 - suffix.length;
-        imagem.legenda = result.content.substring(0, maxContentLen).trim() + suffix;
+        imagem.legenda = result.content.substring(0, 200).trim();
         imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
       } else {
         if (result.criticalError) {
@@ -929,10 +928,7 @@ export class QueueService implements OnModuleInit {
           etapa: 2,
           defaultPromptUsado: !!defaultPrompt,
         });
-        const suffix =
-          imagem.avariaLocal && imagem.avariaLocal.trim() !== ''
-            ? ' com detalhe apontado'
-            : ' sem avarias aparentes';
+        const suffix = hasDetalheApontado ? ' com detalhe apontado' : ' sem avarias aparentes';
         const maxContentLen = 200 - suffix.length;
         imagem.legenda = finalResult.content.substring(0, maxContentLen).trim() + suffix;
         imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
@@ -982,10 +978,7 @@ export class QueueService implements OnModuleInit {
           sucesso: true,
           defaultPromptUsado: !!defaultPrompt,
         });
-        const suffix =
-          imagem.avariaLocal && imagem.avariaLocal.trim() !== ''
-            ? ' com detalhe apontado'
-            : ' sem avarias aparentes';
+        const suffix = hasDetalheApontado ? ' com detalhe apontado' : ' sem avarias aparentes';
         const maxContentLen = 200 - suffix.length;
         imagem.legenda = result.content.substring(0, maxContentLen).trim() + suffix;
         imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
@@ -1017,6 +1010,21 @@ export class QueueService implements OnModuleInit {
   private buildTechnicalIdentifyPrompt(nomeItemPai: string, filhos: ItemAmbiente[]): string {
     const opcoes = filhos.map((filho) => `"${filho.nome}"`).join(', ');
     return `Item base: "${nomeItemPai}". Selecione exatamente uma opção entre: ${opcoes}. Analise a imagem e escolha a opção que melhor representa o conteúdo, mesmo em caso de dúvida. Responda apenas com o nome exato da opção escolhida. Nunca responda fora das opções listadas.`;
+  }
+
+  private hasDetalheApontado(imagem: ImagemLaudo): boolean {
+    const categoria = (imagem.categoria || '').trim().toUpperCase();
+    if (categoria === 'AVARIA') {
+      return false;
+    }
+
+    const avariaLocalNormalizada = normalizeForMatch(imagem.avariaLocal || '');
+    if (!avariaLocalNormalizada) {
+      return false;
+    }
+
+    const marcadores = new Set(['comdetalheapontado', 'detalheapontado']);
+    return marcadores.has(avariaLocalNormalizada);
   }
 
   /**
