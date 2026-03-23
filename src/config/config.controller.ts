@@ -13,6 +13,7 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SystemConfigService } from './config.service';
 import { UpdateDefaultPromptDto } from './dto/update-default-prompt.dto';
+import { UpdateAvariaPromptDto } from './dto/update-avaria-prompt.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -50,6 +51,36 @@ export class SystemConfigController {
     return {
       success: true,
       message: 'Prompt padrão atualizado com sucesso',
+    };
+  }
+
+  @Get('avaria-prompt')
+  @Roles(UserRole.DEV, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Obter prompt específico para análise de avaria',
+    description:
+      'Retorna o prompt utilizado exclusivamente para fotos de avaria. Na análise, ele é concatenado ao prompt padrão.',
+  })
+  async getAvariaPrompt(): Promise<{ value: string }> {
+    const value = await this.configService.getAvariaPrompt();
+    return { value };
+  }
+
+  @Put('avaria-prompt')
+  @Roles(UserRole.DEV, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Atualizar prompt específico para análise de avaria',
+    description:
+      'Define o prompt de avaria usado somente em fotos de avaria. Deve ter entre 25 e 1000 caracteres.',
+  })
+  async setAvariaPrompt(
+    @Body() dto: UpdateAvariaPromptDto,
+    @Request() req: any,
+  ): Promise<{ success: boolean; message: string }> {
+    await this.configService.setAvariaPrompt(dto.value, req.user.id);
+    return {
+      success: true,
+      message: 'Prompt de avaria atualizado com sucesso',
     };
   }
 

@@ -19,6 +19,8 @@ export interface TipoImovelOpcao {
 
 const TIPOS_IMOVEL_KEY = 'tipos_imovel_por_uso';
 const TIPOS_USO_VALIDOS = ['Residencial', 'Comercial', 'Industrial'];
+const DEFAULT_PROMPT_KEY = 'default_prompt';
+const AVARIA_PROMPT_KEY = 'avaria_prompt';
 
 @Injectable()
 export class SystemConfigService implements OnModuleInit {
@@ -35,6 +37,7 @@ export class SystemConfigService implements OnModuleInit {
    */
   async onModuleInit() {
     await this.ensureDefaultPromptExists();
+    await this.ensureAvariaPromptExists();
     await this.ensureTiposImovelExists();
   }
 
@@ -44,16 +47,33 @@ export class SystemConfigService implements OnModuleInit {
    */
   private async ensureDefaultPromptExists(): Promise<void> {
     const existing = await this.configRepository.findOne({
-      where: { key: 'default_prompt' },
+      where: { key: DEFAULT_PROMPT_KEY },
     });
 
     if (!existing) {
       await this.configRepository.save({
-        key: 'default_prompt',
+        key: DEFAULT_PROMPT_KEY,
         value: '',
-        description: 'Prompt padrão que é adicionado antes dos prompts de itens na análise de imagens. Máximo 1000 caracteres.',
+        description:
+          'Prompt padrão que é adicionado antes dos prompts de itens na análise de imagens. Máximo 1000 caracteres.',
       });
       this.logger.log('✅ Configuração default_prompt criada automaticamente');
+    }
+  }
+
+  private async ensureAvariaPromptExists(): Promise<void> {
+    const existing = await this.configRepository.findOne({
+      where: { key: AVARIA_PROMPT_KEY },
+    });
+
+    if (!existing) {
+      await this.configRepository.save({
+        key: AVARIA_PROMPT_KEY,
+        value: '',
+        description:
+          'Prompt específico para fotos de avaria. É concatenado ao prompt padrão na análise de imagens de avaria. Máximo 1000 caracteres.',
+      });
+      this.logger.log('✅ Configuração avaria_prompt criada automaticamente');
     }
   }
 
@@ -89,7 +109,7 @@ export class SystemConfigService implements OnModuleInit {
    */
   async getDefaultPrompt(): Promise<string> {
     const config = await this.configRepository.findOne({
-      where: { key: 'default_prompt' },
+      where: { key: DEFAULT_PROMPT_KEY },
     });
     return config?.value || '';
   }
@@ -105,15 +125,46 @@ export class SystemConfigService implements OnModuleInit {
 
     await this.configRepository.upsert(
       {
-        key: 'default_prompt',
+        key: DEFAULT_PROMPT_KEY,
         value: trimmedValue,
         updatedById: userId,
-        description: 'Prompt padrão que é adicionado antes dos prompts de itens na análise de imagens. Máximo 1000 caracteres.',
+        description:
+          'Prompt padrão que é adicionado antes dos prompts de itens na análise de imagens. Máximo 1000 caracteres.',
       },
       ['key'],
     );
 
     this.logger.log(`Prompt padrão atualizado (${trimmedValue.length} caracteres)`);
+  }
+
+  async getAvariaPrompt(): Promise<string> {
+    const config = await this.configRepository.findOne({
+      where: { key: AVARIA_PROMPT_KEY },
+    });
+    return config?.value || '';
+  }
+
+  async setAvariaPrompt(value: string, userId: string): Promise<void> {
+    const sanitized = value.trim();
+
+    if (sanitized.length < 25) {
+      throw new BadRequestException('O prompt de avaria deve ter no mínimo 25 caracteres');
+    }
+
+    const trimmedValue = sanitized.substring(0, 1000);
+
+    await this.configRepository.upsert(
+      {
+        key: AVARIA_PROMPT_KEY,
+        value: trimmedValue,
+        updatedById: userId,
+        description:
+          'Prompt específico para fotos de avaria. É concatenado ao prompt padrão na análise de imagens de avaria. Máximo 1000 caracteres.',
+      },
+      ['key'],
+    );
+
+    this.logger.log(`Prompt de avaria atualizado (${trimmedValue.length} caracteres)`);
   }
 
   private validarTipoUso(tipoUso: string): string {
@@ -142,9 +193,7 @@ export class SystemConfigService implements OnModuleInit {
     const sanitizedLimit = Math.max(1, Math.min(100, limit || 10));
     const sanitizedOffset = Math.max(0, offset || 0);
     const all = (await this.getTiposImovelRaw()).filter((item) => item.ativo);
-    const filtered = tipoUso
-      ? all.filter((item) => item.tipoUso === tipoUso)
-      : all;
+    const filtered = tipoUso ? all.filter((item) => item.tipoUso === tipoUso) : all;
     const sorted = filtered.sort((a, b) => a.ordem - b.ordem);
     const data = sorted.slice(sanitizedOffset, sanitizedOffset + sanitizedLimit);
     return {
@@ -185,9 +234,7 @@ export class SystemConfigService implements OnModuleInit {
         item.nome.toLowerCase() === nomeNormalizado.toLowerCase(),
     );
     if (exists) {
-      throw new BadRequestException(
-        'Já existe este tipo de imóvel para o tipo de uso informado',
-      );
+      throw new BadRequestException('Já existe este tipo de imóvel para o tipo de uso informado');
     }
 
     const maxOrdem = list.reduce((max, item) => Math.max(max, item.ordem || 0), 0);
@@ -235,9 +282,7 @@ export class SystemConfigService implements OnModuleInit {
         item.nome.toLowerCase() === nomeNormalizado.toLowerCase(),
     );
     if (conflict) {
-      throw new BadRequestException(
-        'Já existe este tipo de imóvel para o tipo de uso informado',
-      );
+      throw new BadRequestException('Já existe este tipo de imóvel para o tipo de uso informado');
     }
 
     const nomeAntigo = list[index].nome;

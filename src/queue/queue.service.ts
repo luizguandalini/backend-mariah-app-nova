@@ -702,6 +702,79 @@ export class QueueService implements OnModuleInit {
       return true;
     }
 
+    const isAvariaImage = !!imagem.avariaLocal?.trim();
+    const imageUrl = await this.uploadsService.getSignedUrlForAi(imagem.s3Key);
+
+    if (isAvariaImage) {
+      const avariaPrompt = await this.systemConfigService.getAvariaPrompt();
+      const avariaPromptSanitizado = avariaPrompt.trim();
+
+      if (!avariaPromptSanitizado) {
+        this.logAnalysis({
+          ambiente: ambiente.nome,
+          item: tipoItem,
+          filho: null,
+          promptEnviado: '(prompt de avaria não configurado)',
+          resposta: 'Prompt de avaria não configurado',
+          sucesso: false,
+        });
+        imagem.legenda = 'Prompt de avaria não configurado';
+        imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
+        await this.imagemRepository.save(imagem);
+        return true;
+      }
+
+      const promptFinal = [defaultPrompt.trim(), avariaPromptSanitizado].filter(Boolean).join(' ');
+
+      this.logAnalysis({
+        ambiente: ambiente.nome,
+        item: `${tipoItem} (AVARIA)`,
+        filho: null,
+        promptEnviado: promptFinal,
+        resposta: '🔄 Aguardando resposta...',
+        sucesso: true,
+        defaultPromptUsado: !!defaultPrompt.trim(),
+      });
+
+      const result = await this.openaiService.analyzeImage(imageUrl, promptFinal);
+
+      if (result.success) {
+        this.logAnalysis({
+          ambiente: ambiente.nome,
+          item: `${tipoItem} (AVARIA)`,
+          filho: null,
+          promptEnviado: promptFinal,
+          resposta: result.content,
+          sucesso: true,
+          defaultPromptUsado: !!defaultPrompt.trim(),
+        });
+        const suffix = ' com detalhe apontado';
+        const maxContentLen = 200 - suffix.length;
+        imagem.legenda = result.content.substring(0, maxContentLen).trim() + suffix;
+        imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
+      } else {
+        if (result.criticalError) {
+          const errorMsg = result.error?.message || 'Erro crítico da OpenAI';
+          await this.handleCriticalError(`${errorMsg}`);
+          throw new Error(`Erro crítico: ${errorMsg}`);
+        }
+        this.logAnalysis({
+          ambiente: ambiente.nome,
+          item: `${tipoItem} (AVARIA)`,
+          filho: null,
+          promptEnviado: promptFinal,
+          resposta: `❌ Erro: ${result.error?.message || 'Falha na API'}`,
+          sucesso: false,
+        });
+        imagem.legenda = 'Erro na análise';
+        imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
+      }
+
+      await this.imagemRepository.save(imagem);
+      this.logger.debug(`Imagem ${imagem.id} analisada: ${imagem.legenda}`);
+      return true;
+    }
+
     const ambientesDoMesmoGrupo = ambiente.grupoId
       ? ambientes.filter((a) => a.grupoId === ambiente.grupoId && a.ativo)
       : [ambiente];
@@ -768,9 +841,6 @@ export class QueueService implements OnModuleInit {
       await this.imagemRepository.save(imagem);
       return true;
     }
-
-    // Gerar URL da imagem (pré-assinada)
-    const imageUrl = await this.uploadsService.getSignedUrlForAi(imagem.s3Key);
 
     // Verificar se item tem filhos (precisa de análise em duas etapas)
     const filhosAtivos = (item.filhos || [])
