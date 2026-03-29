@@ -28,6 +28,7 @@ import { UpdateLaudoEnderecoDto } from './dto/update-laudo-endereco.dto';
 import { DashboardStatsDto } from './dto/dashboard-stats.dto';
 import { AddAmbienteWebDto } from './dto/add-ambiente-web.dto';
 import { ReordenarAmbientesWebDto } from './dto/reordenar-ambientes-web.dto';
+import { RenameAmbienteWebDto } from './dto/rename-ambiente-web.dto';
 import { Laudo } from './entities/laudo.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -84,12 +85,7 @@ export class LaudosController {
     @Query('limit') limit: number = 10,
     @Query('status') status?: string,
   ): Promise<PaginatedLaudosResult> {
-    return await this.laudosService.findByUsuario(
-      user.id,
-      Number(page),
-      Number(limit),
-      status,
-    );
+    return await this.laudosService.findByUsuario(user.id, Number(page), Number(limit), status);
   }
 
   @Get()
@@ -195,11 +191,11 @@ export class LaudosController {
   @ApiOperation({ summary: 'Solicitar geração de PDF (Async via RabbitMQ)' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })
   @ApiResponse({ status: 200, description: 'Solicitação enfileirada com sucesso' })
-  @ApiResponse({ status: 400, description: 'Já existe um processamento em andamento ou erro na fila' })
-  async requestPdf(
-    @Param('id') id: string,
-    @CurrentUser() user: any,
-  ) {
+  @ApiResponse({
+    status: 400,
+    description: 'Já existe um processamento em andamento ou erro na fila',
+  })
+  async requestPdf(@Param('id') id: string, @CurrentUser() user: any) {
     return await this.laudosService.requestPdfGeneration(id, user.id, user.role);
   }
 
@@ -208,10 +204,7 @@ export class LaudosController {
   @Get(':id/ambientes-web')
   @ApiOperation({ summary: 'Listar ambientes web do laudo com contagem de imagens' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })
-  async getAmbientesWeb(
-    @Param('id') id: string,
-    @CurrentUser() user: any,
-  ) {
+  async getAmbientesWeb(@Param('id') id: string, @CurrentUser() user: any) {
     return await this.laudosService.getAmbientesWeb(id, user.id, user.role);
   }
 
@@ -247,6 +240,23 @@ export class LaudosController {
       user.id,
       user.role,
       body.nomesAmbientes,
+    );
+  }
+
+  @Patch(':id/ambientes-web/renomear')
+  @ApiOperation({ summary: 'Renomear ambiente web do laudo' })
+  @ApiParam({ name: 'id', description: 'ID do laudo' })
+  async renomearAmbienteWeb(
+    @Param('id') id: string,
+    @Body() body: RenameAmbienteWebDto,
+    @CurrentUser() user: any,
+  ) {
+    return await this.laudosService.renomearAmbienteWeb(
+      id,
+      user.id,
+      user.role,
+      body.nomeAtual,
+      body.novoNome,
     );
   }
 

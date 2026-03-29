@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
+import { IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export enum EstrategiaConflitoAmbienteWeb {
   ERRO = 'erro',
@@ -10,6 +10,7 @@ export class AddAmbienteWebDto {
   @ApiProperty({ description: 'Nome do ambiente' })
   @IsString()
   @IsNotEmpty()
+  @MaxLength(100)
   nomeAmbiente: string;
 
   @ApiProperty({ description: 'Tipo do ambiente' })

@@ -38,6 +38,7 @@ export type LaudoListItem = Partial<Laudo> & {
 };
 
 type AmbienteWeb = { nomeAmbiente: string; tipoAmbiente: string; ordem: number };
+const MAX_AMBIENTE_NOME_LENGTH = 100;
 
 @Injectable()
 export class LaudosService {
@@ -259,6 +260,12 @@ export class LaudosService {
     }
 
     const nomeFinal = `${numeroAmbiente} - ${tipoAmbienteLimpo}`;
+    if (nomeFinal.length > MAX_AMBIENTE_NOME_LENGTH) {
+      throw new BadRequestException(
+        `O nome do ambiente deve ter no máximo ${MAX_AMBIENTE_NOME_LENGTH} caracteres`,
+      );
+    }
+
     if (
       ambientes.some(
         (a) =>
@@ -298,6 +305,82 @@ export class LaudosService {
     });
 
     return ambientesOrdenados;
+  }
+
+  async renomearAmbienteWeb(
+    laudoId: string,
+    userId: string,
+    userRole: UserRole,
+    nomeAtual: string,
+    novoNome: string,
+  ): Promise<AmbienteWeb[]> {
+    const laudo = await this.findOne(laudoId);
+
+    const isOwner = laudo.usuarioId === userId;
+    const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
+    if (!isOwner && !isAdminOrDev) {
+      throw new ForbiddenException('Você não tem permissão para editar este laudo');
+    }
+
+    const nomeAtualLimpo = (nomeAtual || '').trim();
+    const novoNomeLimpo = (novoNome || '').trim();
+
+    if (!nomeAtualLimpo || !novoNomeLimpo) {
+      throw new BadRequestException('Nome atual e novo nome do ambiente são obrigatórios');
+    }
+
+    if (novoNomeLimpo.length > MAX_AMBIENTE_NOME_LENGTH) {
+      throw new BadRequestException(
+        `O novo nome do ambiente deve ter no máximo ${MAX_AMBIENTE_NOME_LENGTH} caracteres`,
+      );
+    }
+
+    const ambientes = this.normalizarOrdensAmbientes(laudo.ambientesWeb || []);
+    const ambienteAtual = ambientes.find(
+      (a) => a.nomeAmbiente.trim().toLowerCase() === nomeAtualLimpo.toLowerCase(),
+    );
+
+    if (!ambienteAtual) {
+      throw new NotFoundException(`Ambiente "${nomeAtualLimpo}" não encontrado neste laudo`);
+    }
+
+    const ambienteDuplicado = ambientes.find(
+      (a) =>
+        a.nomeAmbiente.trim().toLowerCase() === novoNomeLimpo.toLowerCase() &&
+        a.nomeAmbiente !== ambienteAtual.nomeAmbiente,
+    );
+    if (ambienteDuplicado) {
+      throw new ConflictException(`Já existe um ambiente chamado "${novoNomeLimpo}" neste laudo`);
+    }
+
+    const ambientesAtualizados = ambientes.map((ambiente) => {
+      if (ambiente.nomeAmbiente === ambienteAtual.nomeAmbiente) {
+        return {
+          ...ambiente,
+          nomeAmbiente: novoNomeLimpo,
+        };
+      }
+      return ambiente;
+    });
+
+    await this.laudoRepository.manager.transaction(async (transactionalEntityManager) => {
+      await transactionalEntityManager.update(
+        ImagemLaudo,
+        { laudoId, ambiente: ambienteAtual.nomeAmbiente },
+        { ambiente: novoNomeLimpo },
+      );
+
+      await transactionalEntityManager.update(
+        Laudo,
+        { id: laudoId },
+        {
+          ambientesWeb: ambientesAtualizados,
+          totalAmbientes: ambientesAtualizados.length,
+        },
+      );
+    });
+
+    return ambientesAtualizados;
   }
 
   /**
