@@ -665,10 +665,20 @@ export class QueueService implements OnModuleInit {
     }
 
     const tipoAtual = (imagem.tipo || '').trim();
+    const isAvariaImage = (imagem.categoria || '').trim().toUpperCase() === 'AVARIA';
     const tipoEhNaoIdentificado =
       !tipoAtual ||
       textMatches(tipoAtual, 'Não identificado') ||
       textMatches(tipoAtual, 'Nao identificado');
+
+    if (isAvariaImage) {
+      if (!tipoAtual) {
+        imagem.tipo = 'Não identificado';
+      }
+      imagem.itemJaFoiAnalisadoPelaIa = 'sim';
+      await this.imagemRepository.save(imagem);
+      return true;
+    }
 
     if (!tipoEhNaoIdentificado || !imagem.tipoAmbiente) {
       imagem.itemJaFoiAnalisadoPelaIa = 'sim';

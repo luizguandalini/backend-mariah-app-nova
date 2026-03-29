@@ -397,6 +397,8 @@ export class UploadsService {
       throw new ForbiddenException('Você não tem permissão para editar esta imagem');
     }
 
+    const categoriaAnterior = imagem.categoria;
+
     // Atualizar apenas os campos que foram enviados
     if (metadata.ambiente !== undefined) imagem.ambiente = metadata.ambiente;
     if (metadata.tipoAmbiente !== undefined) imagem.tipoAmbiente = metadata.tipoAmbiente;
@@ -408,8 +410,11 @@ export class UploadsService {
     if (metadata.ambienteComentario !== undefined)
       imagem.ambienteComentario = metadata.ambienteComentario;
 
+    const categoriaMudou =
+      metadata.categoria !== undefined && metadata.categoria !== categoriaAnterior;
+
     // Reset da análise IA se algum campo relevante mudar
-    if (metadata.tipo !== undefined || metadata.tipoAmbiente !== undefined) {
+    if (metadata.tipo !== undefined || metadata.tipoAmbiente !== undefined || categoriaMudou) {
       imagem.imagemJaFoiAnalisadaPelaIa = 'nao';
       imagem.legenda = 'sem legenda';
     }
