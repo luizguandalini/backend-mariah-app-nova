@@ -717,6 +717,13 @@ export class UploadsService {
 
     // Iniciar transação para garantir consistência
     await this.imagemLaudoRepository.manager.transaction(async (transactionalEntityManager) => {
+      await transactionalEntityManager.query(
+        `UPDATE analysis_queue
+         SET current_image_id = NULL
+         WHERE current_image_id = $1`,
+        [imagem.id],
+      );
+
       // 1. Verificar se deve devolver crédito
       if (
         imagem.imagemJaFoiAnalisadaPelaIa === 'nao' &&

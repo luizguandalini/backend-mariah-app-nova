@@ -419,6 +419,15 @@ export class LaudosService {
       : 0;
 
     await this.laudoRepository.manager.transaction(async (transactionalEntityManager) => {
+      if (imagemIds.length > 0) {
+        await transactionalEntityManager.query(
+          `UPDATE analysis_queue
+           SET current_image_id = NULL
+           WHERE current_image_id = ANY($1::uuid[])`,
+          [imagemIds],
+        );
+      }
+
       if (creditosParaDevolver > 0) {
         const usuario = await transactionalEntityManager.findOne(Usuario, {
           where: { id: laudo.usuarioId },
