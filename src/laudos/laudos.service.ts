@@ -403,36 +403,55 @@ export class LaudosService {
     let ambientes = this.normalizarOrdensAmbientes(laudo.ambientesWeb || []);
     ambientes = ambientes.filter((a) => a.nomeAmbiente !== nomeAmbiente);
 
-    // Recalcular ordens
     ambientes.forEach((a, i) => {
       a.ordem = i;
     });
 
-    // Encontrar todas as imagens vinculadas ao ambiente atual no laudo
     const imagensDoAmbiente = await this.imagemRepository.find({
       where: { laudoId, ambiente: nomeAmbiente },
-      select: ['id'],
+      select: ['id', 's3Key', 'imagemJaFoiAnalisadaPelaIa'],
     });
+    const imagemIds = imagensDoAmbiente.map((img) => img.id);
+    const s3Keys = imagensDoAmbiente.map((img) => img.s3Key);
+    const deveDevolverCreditos = !isAdminOrDev;
+    const creditosParaDevolver = deveDevolverCreditos
+      ? imagensDoAmbiente.filter((img) => img.imagemJaFoiAnalisadaPelaIa === 'nao').length
+      : 0;
 
-    // Deletar as imagens acionando a lógica correta de devolver créditos e remover do S3
-    for (const img of imagensDoAmbiente) {
-      try {
-        await this.uploadsService.deleteImagem(userId, img.id, userRole);
-      } catch (err) {
-        console.error(`Falha ao remover a imagem vinculada ao ambiente ${img.id}`, err);
+    await this.laudoRepository.manager.transaction(async (transactionalEntityManager) => {
+      if (creditosParaDevolver > 0) {
+        const usuario = await transactionalEntityManager.findOne(Usuario, {
+          where: { id: laudo.usuarioId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (usuario) {
+          usuario.quantidadeImagens += creditosParaDevolver;
+          await transactionalEntityManager.save(usuario);
+        }
       }
-    }
 
-    // Recalcular o total de imagens correntes do laudo
-    const totalFotosAtualizadas = await this.imagemRepository.count({
-      where: { laudoId },
+      if (imagemIds.length > 0) {
+        await transactionalEntityManager.delete(ImagemLaudo, {
+          id: In(imagemIds),
+        });
+      }
+
+      const totalFotosAtualizadas = await transactionalEntityManager.count(ImagemLaudo, {
+        where: { laudoId },
+      });
+
+      await transactionalEntityManager.update(
+        Laudo,
+        { id: laudoId },
+        {
+          ambientesWeb: ambientes,
+          totalAmbientes: ambientes.length,
+          totalFotos: totalFotosAtualizadas,
+        },
+      );
     });
 
-    await this.laudoRepository.update(laudoId, {
-      ambientesWeb: ambientes,
-      totalAmbientes: ambientes.length,
-      totalFotos: totalFotosAtualizadas,
-    });
+    await this.uploadsService.deleteS3ObjectsBatch(s3Keys);
 
     return ambientes;
   }

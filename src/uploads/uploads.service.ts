@@ -790,28 +790,42 @@ export class UploadsService {
       select: ['s3Key'],
     });
 
-    if (imagens.length === 0) {
+    await this.deleteS3ObjectsBatch(imagens.map((img) => img.s3Key));
+  }
+
+  async deleteS3ObjectsBatch(s3Keys: string[]): Promise<void> {
+    const keysFiltradas = Array.from(
+      new Set(
+        s3Keys
+          .map((key) => key?.trim())
+          .filter((key): key is string => Boolean(key)),
+      ),
+    );
+
+    if (keysFiltradas.length === 0) {
       return;
     }
 
-    // Agrupar em chunks de 1000 (limite do S3 deleteObjects)
     const chunkSize = 1000;
-    for (let i = 0; i < imagens.length; i += chunkSize) {
-      const chunk = imagens.slice(i, i + chunkSize);
-
-      const objectsToDelete = chunk.map((img) => ({ Key: img.s3Key }));
+    for (let i = 0; i < keysFiltradas.length; i += chunkSize) {
+      const chunk = keysFiltradas.slice(i, i + chunkSize);
 
       try {
         const command = new DeleteObjectsCommand({
           Bucket: this.bucketName,
           Delete: {
-            Objects: objectsToDelete,
-            Quiet: true, // Retorna apenas erros
+            Objects: chunk.map((Key) => ({ Key })),
+            Quiet: true,
           },
         });
-        await this.s3Client.send(command);
+        const response = await this.s3Client.send(command);
+        if (response.Errors && response.Errors.length > 0) {
+          this.logger.warn(
+            `Falhas ao deletar objetos S3 em lote: ${response.Errors.length}`,
+          );
+        }
       } catch (error) {
-        console.error(`Erro ao deletar batch de imagens S3 (chunk ${i}):`, error);
+        this.logger.error(`Erro ao deletar batch de imagens S3 (chunk ${i})`, error as Error);
       }
     }
   }
