@@ -79,6 +79,15 @@ export class UploadsService {
       throw new NotFoundException('Usuário não encontrado');
     }
 
+    if (dto.totalFotos > 100) {
+      return {
+        canUpload: false,
+        available: usuario?.quantidadeImagens || 0,
+        required: dto.totalFotos,
+        message: 'O limite máximo de envio simultâneo é de 100 imagens. Por favor, arraste blocos menores.',
+      };
+    }
+
     // Admin/Dev = ilimitado
     if ([UserRole.DEV, UserRole.ADMIN].includes(usuario.role)) {
       return {

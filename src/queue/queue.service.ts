@@ -632,7 +632,7 @@ export class QueueService implements OnModuleInit {
 
     // Buscar prompt baseado no tipo e tipo_ambiente
     const tipoAmbiente = imagem.tipoAmbiente;
-    const tipoItem = imagem.tipo;
+    let tipoItem = imagem.tipo;
 
     if (!tipoAmbiente || !tipoItem) {
       const createdAtMs = imagem.createdAt ? new Date(imagem.createdAt).getTime() : Date.now();
@@ -660,6 +660,36 @@ export class QueueService implements OnModuleInit {
       imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
       await this.imagemRepository.save(imagem);
       return true;
+    }
+
+    // ===== AUTO-CLASSIFICAÇÃO DE ITENS (fluxo web) =====
+    // Se o item está como 'Não identificado', tentar classificar automaticamente via IA
+    if (tipoItem === 'Não identificado' && tipoAmbiente) {
+      this.logger.log(`[AUTO-CLASSIFY] Imagem ${imagem.id} sem item definido. Tentando classificar automaticamente...`);
+
+      try {
+        const autoClassResult = await this.autoClassifyItem(imagem, tipoAmbiente);
+        if (autoClassResult) {
+          tipoItem = autoClassResult;
+          imagem.tipo = autoClassResult;
+          await this.imagemRepository.save(imagem);
+          this.logger.log(`[AUTO-CLASSIFY] ✅ Item classificado como: ${autoClassResult}`);
+        } else {
+          this.logger.warn(`[AUTO-CLASSIFY] ❌ Não foi possível classificar a imagem ${imagem.id}`);
+          // Continuar sem item identificado — será marcado como erro na análise
+          imagem.legenda = 'Item não identificado pela IA';
+          imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
+          await this.imagemRepository.save(imagem);
+          return true;
+        }
+      } catch (err) {
+        this.logger.error(`[AUTO-CLASSIFY] Erro ao classificar imagem ${imagem.id}: ${err.message}`);
+        // Não falhar a fila inteira, só pular esta imagem
+        imagem.legenda = 'Erro na classificação automática';
+        imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
+        await this.imagemRepository.save(imagem);
+        return true;
+      }
     }
 
     const laudo = await this.laudoRepository.findOne({
@@ -1219,5 +1249,88 @@ ${bgBlue}${white}${bold}╚═════════════════�
    */
   async handleCriticalError(errorMessage: string): Promise<void> {
     await this.pauseQueue(errorMessage);
+  }
+
+  /**
+   * Auto-classifica o item de uma imagem usando IA (chamado durante processamento da fila).
+   * Usa a mesma lógica do classifyWebItem mas sem consumir créditos de classificação,
+   * pois está sendo feito como parte da análise de descrição (que já consumiu crédito de imagem).
+   */
+  private async autoClassifyItem(imagem: ImagemLaudo, tipoAmbiente: string): Promise<string | null> {
+    // 1. Encontrar o ambiente base
+    const tipoAmbienteNormalizado = normalizeForMatch(tipoAmbiente);
+    const ambientes = await this.ambienteRepository.find();
+    let ambiente = ambientes.find((a) => textMatches(a.nome, tipoAmbiente));
+
+    if (!ambiente) {
+      ambiente = ambientes.find((a) => {
+        const nomeNorm = normalizeForMatch(a.nome);
+        return nomeNorm.includes(tipoAmbienteNormalizado) || tipoAmbienteNormalizado.includes(nomeNorm);
+      });
+    }
+
+    if (!ambiente) {
+      this.logger.warn(`[AUTO-CLASSIFY] Ambiente "${tipoAmbiente}" não encontrado`);
+      return null;
+    }
+
+    // 2. Buscar itens pai ativos
+    const ambientesPai = ambiente.grupoId
+      ? await this.ambienteRepository.find({ where: { grupoId: ambiente.grupoId } })
+      : [ambiente];
+    const ambienteIds = ambientesPai.map(a => a.id);
+
+    const itensBrutos = await this.itemRepository
+      .createQueryBuilder('item')
+      .where('item.ambienteId IN (:...ambienteIds)', { ambienteIds })
+      .andWhere('item.ativo = :ativo', { ativo: true })
+      .andWhere('item.parentId IS NULL')
+      .getMany();
+
+    // Deduplicar por nome
+    const itensPorNome = new Map<string, ItemAmbiente>();
+    for (const item of itensBrutos) {
+      const chave = normalizeForMatch(item.nome);
+      itensPorNome.set(chave, item);
+    }
+
+    const itemsPaiAtivos = Array.from(itensPorNome.values());
+    if (itemsPaiAtivos.length === 0) {
+      this.logger.warn(`[AUTO-CLASSIFY] Sem itens cadastrados no ambiente "${tipoAmbiente}"`);
+      return null;
+    }
+
+    // 3. Gerar URL assinada para a imagem
+    const imageUrl = await this.uploadsService.getSignedUrlForAi(imagem.s3Key);
+
+    // 4. Montar prompt de identificação
+    const itemsListString = itemsPaiAtivos.map((i) => `- ${i.nome}`).join('\n');
+    const identifyPrompt = `Analise esta imagem em um(a) ${tipoAmbiente}.
+Abaixo está uma lista **estrita** de opções possíveis de Itens.
+Responda APENAS com o NOME EXATO de uma das opções abaixo que melhor descreve o objeto em destaque na foto.
+Se a imagem for de uma pessoa, documento, ou não pertencer a nenhuma das opções, responda apenas "Nao identificado".
+
+OPÇÕES:
+${itemsListString}`;
+
+    this.logger.debug(`[AUTO-CLASSIFY] Prompt para imagem ${imagem.id}: ${identifyPrompt.substring(0, 200)}...`);
+
+    // 5. Chamar OpenAI
+    const aiResult = await this.openaiService.analyzeImage(imageUrl, identifyPrompt);
+
+    if (!aiResult.success || !aiResult.content) {
+      this.logger.warn(`[AUTO-CLASSIFY] Falha na análise IA para imagem ${imagem.id}`);
+      return null;
+    }
+
+    // 6. Match do resultado com os itens disponíveis
+    const identificacaoPai = this.openaiService.identifyChildItem(
+      aiResult.content,
+      itemsPaiAtivos.map(i => i.nome),
+    );
+
+    this.logger.log(`[AUTO-CLASSIFY] Resultado para ${imagem.id}: "${aiResult.content}" → Matched: "${identificacaoPai || 'Nenhum'}"`);
+
+    return identificacaoPai || null;
   }
 }

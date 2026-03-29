@@ -168,6 +168,10 @@ export class Laudo {
   @Column({ name: 'dados_extra', type: 'jsonb', nullable: true })
   dadosExtra: object; // { [sectionName]: { [question]: answer } }
 
+  // Ambientes criados via web (galeria) - permite ambientes vazios sem imagens
+  @Column({ name: 'ambientes_web', type: 'jsonb', nullable: true, default: () => "'[]'" })
+  ambientesWeb: { nomeAmbiente: string; tipoAmbiente: string; ordem: number }[];
+
   @CreateDateColumn({
     name: 'created_at',
     type: 'timestamptz',

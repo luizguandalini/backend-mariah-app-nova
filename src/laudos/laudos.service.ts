@@ -219,6 +219,150 @@ export class LaudosService {
     return await this.laudoRepository.save(laudo);
   }
 
+  /**
+   * Adiciona um ambiente à lista web de ambientes do laudo
+   */
+  async addAmbienteWeb(
+    laudoId: string,
+    userId: string,
+    userRole: UserRole,
+    nomeAmbiente: string,
+    tipoAmbiente: string,
+  ): Promise<{ nomeAmbiente: string; tipoAmbiente: string; ordem: number }[]> {
+    const laudo = await this.findOne(laudoId);
+
+    const isOwner = laudo.usuarioId === userId;
+    const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
+    if (!isOwner && !isAdminOrDev) {
+      throw new ForbiddenException('Você não tem permissão para editar este laudo');
+    }
+
+    const ambientes = laudo.ambientesWeb || [];
+
+    // Verificar duplicidade
+    if (ambientes.some(a => a.nomeAmbiente === nomeAmbiente)) {
+      throw new BadRequestException(`Já existe um ambiente chamado "${nomeAmbiente}" neste laudo`);
+    }
+
+    const novoAmbiente = {
+      nomeAmbiente,
+      tipoAmbiente,
+      ordem: ambientes.length,
+    };
+
+    ambientes.push(novoAmbiente);
+
+    await this.laudoRepository.update(laudoId, {
+      ambientesWeb: ambientes,
+      totalAmbientes: ambientes.length,
+    });
+
+    return ambientes;
+  }
+
+  /**
+   * Remove um ambiente da lista web de ambientes do laudo
+   */
+  async removeAmbienteWeb(
+    laudoId: string,
+    userId: string,
+    userRole: UserRole,
+    nomeAmbiente: string,
+  ): Promise<{ nomeAmbiente: string; tipoAmbiente: string; ordem: number }[]> {
+    const laudo = await this.findOne(laudoId);
+
+    const isOwner = laudo.usuarioId === userId;
+    const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
+    if (!isOwner && !isAdminOrDev) {
+      throw new ForbiddenException('Você não tem permissão para editar este laudo');
+    }
+
+    let ambientes = laudo.ambientesWeb || [];
+    ambientes = ambientes.filter(a => a.nomeAmbiente !== nomeAmbiente);
+
+    // Recalcular ordens
+    ambientes.forEach((a, i) => { a.ordem = i; });
+
+    // Encontrar todas as imagens vinculadas ao ambiente atual no laudo
+    const imagensDoAmbiente = await this.imagemRepository.find({
+      where: { laudoId, ambiente: nomeAmbiente },
+      select: ['id'],
+    });
+
+    // Deletar as imagens acionando a lógica correta de devolver créditos e remover do S3
+    for (const img of imagensDoAmbiente) {
+      try {
+        await this.uploadsService.deleteImagem(userId, img.id, userRole);
+      } catch (err) {
+        console.error(`Falha ao remover a imagem vinculada ao ambiente ${img.id}`, err);
+      }
+    }
+
+    // Recalcular o total de imagens correntes do laudo
+    const totalFotosAtualizadas = await this.imagemRepository.count({
+      where: { laudoId },
+    });
+
+    await this.laudoRepository.update(laudoId, {
+      ambientesWeb: ambientes,
+      totalAmbientes: ambientes.length,
+      totalFotos: totalFotosAtualizadas,
+    });
+
+    return ambientes;
+  }
+
+  /**
+   * Lista ambientes web do laudo (do JSON + merge com imagens existentes)
+   */
+  async getAmbientesWeb(
+    laudoId: string,
+    userId: string,
+    userRole: UserRole,
+  ): Promise<{
+    ambientes: { nomeAmbiente: string; tipoAmbiente: string; ordem: number; totalImagens: number }[];
+    tipoUso?: string;
+    tipoImovel?: string;
+  }> {
+    const laudo = await this.findOne(laudoId);
+
+    const isOwner = laudo.usuarioId === userId;
+    const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
+    if (!isOwner && !isAdminOrDev) {
+      throw new ForbiddenException('Você não tem permissão para ver este laudo');
+    }
+
+    const ambientesWeb = laudo.ambientesWeb || [];
+
+    // Contar imagens por ambiente
+    const imagensByAmbiente = await this.imagemRepository
+      .createQueryBuilder('img')
+      .select('img.ambiente', 'ambiente')
+      .addSelect('COUNT(*)', 'totalImagens')
+      .where('img.laudo_id = :laudoId', { laudoId })
+      .andWhere('img.ambiente IS NOT NULL')
+      .andWhere("img.ambiente != ''")
+      .groupBy('img.ambiente')
+      .getRawMany();
+
+    const imagensMap = new Map<string, number>();
+    imagensByAmbiente.forEach(row => {
+      imagensMap.set(row.ambiente, parseInt(row.totalImagens, 10));
+    });
+
+    // Combinar: ambientes web com contagem de imagens
+    const resultado = ambientesWeb.map(amb => ({
+      ...amb,
+      totalImagens: imagensMap.get(amb.nomeAmbiente) || 0,
+    }));
+
+    return {
+      ambientes: resultado,
+      tipoUso: laudo.tipoUso,
+      tipoImovel: laudo.tipoImovel,
+    };
+  }
+
   async findAll(
     page: number = 1,
     limit: number = 15,
@@ -581,10 +725,16 @@ export class LaudosService {
       throw new NotFoundException('Usuário não encontrado');
     }
 
+    const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(usuario.role);
+
     // Para DEV e ADMIN, mostrar quantidade ilimitada
-    const imagensRestantes = [UserRole.DEV, UserRole.ADMIN].includes(usuario.role)
+    const imagensRestantes = isAdminOrDev
       ? 999999
       : usuario.quantidadeImagens;
+
+    const classificacoesWebRestantes = isAdminOrDev
+      ? 999999
+      : (usuario.quantidadeClassificacoesWeb || 0);
 
     const [totalLaudos, emProcessamento, concluidos] = await Promise.all([
       this.laudoRepository.count({ where: { usuarioId } }),
@@ -601,6 +751,7 @@ export class LaudosService {
       emProcessamento,
       concluidos,
       imagensRestantes,
+      classificacoesWebRestantes,
     };
   }
 
@@ -664,14 +815,19 @@ export class LaudosService {
       throw new ForbiddenException('Você não tem permissão para visualizar as imagens deste laudo');
     }
 
+    const ambientesNomesValidos = (laudo.ambientesWeb || []).map(a => a.nomeAmbiente);
+
     // Buscar TODAS as imagens ordenadas por ambiente e ordem
-    const todasImagens = await this.imagemRepository.find({
+    // mas apenas anexar as que constam ativamente no JSON de ambientes
+    let todasImagens = await this.imagemRepository.find({
       where: { laudoId },
       order: {
         ambiente: 'ASC',
         ordem: 'ASC',
       },
     });
+
+    todasImagens = todasImagens.filter(img => ambientesNomesValidos.includes(img.ambiente));
 
     if (todasImagens.length === 0) {
       return {

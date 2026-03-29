@@ -12,4 +12,7 @@ export class DashboardStatsDto {
 
   @ApiProperty({ description: 'Quantidade de imagens restantes' })
   imagensRestantes: number;
+
+  @ApiProperty({ description: 'Quantidade de classificações web restantes' })
+  classificacoesWebRestantes: number;
 }

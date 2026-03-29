@@ -43,7 +43,8 @@ export class LaudosController {
   @Post()
   @ApiOperation({ summary: 'Criar novo laudo' })
   @ApiResponse({ status: 201, description: 'Laudo criado com sucesso' })
-  async create(@Body() createLaudoDto: CreateLaudoDto, @CurrentUser() user: any): Promise<Laudo> { createLaudoDto.usuarioId = user?.id || user?.sub;
+  async create(@Body() createLaudoDto: CreateLaudoDto, @CurrentUser() user: any): Promise<Laudo> {
+    createLaudoDto.usuarioId = user?.id || user?.sub;
     return await this.laudosService.create(createLaudoDto);
   }
 
@@ -198,5 +199,51 @@ export class LaudosController {
     @CurrentUser() user: any,
   ) {
     return await this.laudosService.requestPdfGeneration(id, user.id, user.role);
+  }
+
+  // ========== AMBIENTES WEB ==========
+
+  @Get(':id/ambientes-web')
+  @ApiOperation({ summary: 'Listar ambientes web do laudo com contagem de imagens' })
+  @ApiParam({ name: 'id', description: 'ID do laudo' })
+  async getAmbientesWeb(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ) {
+    return await this.laudosService.getAmbientesWeb(id, user.id, user.role);
+  }
+
+  @Post(':id/ambientes-web')
+  @ApiOperation({ summary: 'Adicionar ambiente web ao laudo' })
+  @ApiParam({ name: 'id', description: 'ID do laudo' })
+  async addAmbienteWeb(
+    @Param('id') id: string,
+    @Body() body: { nomeAmbiente: string; tipoAmbiente: string },
+    @CurrentUser() user: any,
+  ) {
+    return await this.laudosService.addAmbienteWeb(
+      id,
+      user.id,
+      user.role,
+      body.nomeAmbiente,
+      body.tipoAmbiente,
+    );
+  }
+
+  @Delete(':id/ambientes-web/:nomeAmbiente')
+  @ApiOperation({ summary: 'Remover ambiente web do laudo' })
+  @ApiParam({ name: 'id', description: 'ID do laudo' })
+  @ApiParam({ name: 'nomeAmbiente', description: 'Nome do ambiente a remover' })
+  async removeAmbienteWeb(
+    @Param('id') id: string,
+    @Param('nomeAmbiente') nomeAmbiente: string,
+    @CurrentUser() user: any,
+  ) {
+    return await this.laudosService.removeAmbienteWeb(
+      id,
+      user.id,
+      user.role,
+      decodeURIComponent(nomeAmbiente),
+    );
   }
 }
