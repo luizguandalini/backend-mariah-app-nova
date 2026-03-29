@@ -10,9 +10,10 @@ import {
   Query,
   Patch,
 } from '@nestjs/common';
+import { ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UploadsService } from './uploads.service';
-import { CheckLimitDto, PresignedUrlDto } from './dto';
+import { CheckLimitDto, PresignedUrlDto, ConfirmWebUploadDto, UpdateImagemMetadataDto, ClassifyItemWebDto } from './dto';
 import { UpdateLegendaDto } from './dto/update-legenda.dto';
 import { SignedUrlsBatchDto } from './dto/signed-urls-batch.dto';
 
@@ -53,7 +54,50 @@ export class UploadsController {
   }
 
   /**
+   * Confirma upload via WEB com metadados (sem Lambda/EXIF)
+   * POST /uploads/confirm-web
+   */
+  @Post('confirm-web')
+  async confirmWebUpload(
+    @Request() req,
+    @Body() dto: ConfirmWebUploadDto,
+  ) {
+    const imagem = await this.uploadsService.confirmWebUpload(req.user.id, dto);
+    return { success: true, imagem };
+  }
+
+  /**
+   * Atualiza metadados de uma imagem (troca manual de item)
+   * PATCH /uploads/imagem/:id/metadata
+   */
+  @Patch('imagem/:id/metadata')
+  async updateImagemMetadata(
+    @Request() req,
+    @Param('id') imagemId: string,
+    @Body() dto: UpdateImagemMetadataDto,
+  ) {
+    return this.uploadsService.updateImagemMetadata(
+      req.user.id,
+      imagemId,
+      dto,
+      req.user.role,
+    );
+  }
+
+  /**
+   * Classifica um item via Inteligência Artificial usando créditos web
+   * POST /uploads/classify-item
+   */
+  @Post('classify-item')
+  @ApiOperation({ summary: 'Classifica um item via IA para fluxo web' })
+  @ApiResponse({ status: 200, description: 'Item classificado com sucesso' })
+  async classifyWebItem(@Request() req, @Body() dto: ClassifyItemWebDto) {
+    return this.uploadsService.classifyWebItem(req.user.id, dto);
+  }
+
+  /**
    * Lista imagens de um laudo
+
    * GET /uploads/laudo/:laudoId
    */
   @Get('laudo/:laudoId')

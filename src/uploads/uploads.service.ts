@@ -13,7 +13,12 @@ import { ImagemLaudo } from './entities/imagem-laudo.entity';
 import { Usuario } from '../users/entities/usuario.entity';
 import { Laudo } from '../laudos/entities/laudo.entity';
 import { UserRole } from '../users/enums/user-role.enum';
-import { CheckLimitDto, PresignedUrlDto } from './dto';
+import { ItemAmbiente } from '../ambientes/entities/item-ambiente.entity';
+import { Ambiente } from '../ambientes/entities/ambiente.entity';
+import { OpenAIService } from '../openai/openai.service';
+import { SystemConfigService } from '../config/config.service';
+import { normalizeForMatch, textMatches } from '../common/utils/text-normalizer.util';
+import { CheckLimitDto, PresignedUrlDto, ClassifyItemWebDto } from './dto';
 
 export interface CheckLimitResponse {
   canUpload: boolean;
@@ -39,6 +44,12 @@ export class UploadsService {
     private readonly usuarioRepository: Repository<Usuario>,
     @InjectRepository(Laudo)
     private readonly laudoRepository: Repository<Laudo>,
+    @InjectRepository(ItemAmbiente)
+    private readonly itemAmbienteRepository: Repository<ItemAmbiente>,
+    @InjectRepository(Ambiente)
+    private readonly ambienteRepository: Repository<Ambiente>,
+    private readonly openaiService: OpenAIService,
+    private readonly systemConfigService: SystemConfigService,
     private readonly configService: ConfigService,
   ) {
     this.bucketName = this.configService.get<string>('S3_BUCKET_NAME', 'mariah-app-uploads-prod');
@@ -207,6 +218,157 @@ export class UploadsService {
       }
       throw error; // Outros erros devem ser propagados
     }
+  }
+
+  /**
+   * Confirma upload via WEB com metadados enviados diretamente (sem Lambda/EXIF)
+   * O frontend web envia os metadados da imagem no body, pois não há
+   * processamento Lambda para extrair EXIF como no app mobile.
+   */
+  async confirmWebUpload(
+    userId: string,
+    dto: {
+      laudoId: string;
+      s3Key: string;
+      ambiente: string;
+      tipoAmbiente: string;
+      tipo?: string;
+      categoria?: string;
+      avariaLocal?: string;
+      descricao?: string;
+      ordem?: number;
+      ambienteComentario?: string;
+    },
+  ): Promise<ImagemLaudo> {
+    // Decrementar créditos (igual ao confirmUpload normal)
+    await this.usuarioRepository.manager.transaction(async (transactionalEntityManager) => {
+      const usuario = await transactionalEntityManager.findOne(Usuario, {
+        where: { id: userId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!usuario) {
+        throw new NotFoundException('Usuário não encontrado');
+      }
+
+      if (![UserRole.DEV, UserRole.ADMIN].includes(usuario.role)) {
+        if (usuario.quantidadeImagens <= 0) {
+          throw new BadRequestException('Limite de imagens esgotado');
+        }
+        usuario.quantidadeImagens -= 1;
+        await transactionalEntityManager.save(usuario);
+      }
+    });
+
+    // Verificar se o laudo pertence ao usuário
+    const laudo = await this.laudoRepository.findOne({
+      where: { id: dto.laudoId },
+    });
+
+    if (!laudo) {
+      throw new NotFoundException('Laudo não encontrado');
+    }
+
+    if (laudo.usuarioId !== userId) {
+      throw new ForbiddenException('Você não tem permissão para fazer upload neste laudo');
+    }
+
+    // Verificar se já existe registro para este s3_key
+    const existingImage = await this.imagemLaudoRepository.findOne({
+      where: { s3Key: dto.s3Key },
+    });
+
+    if (existingImage) {
+      // Atualizar metadados se já existir (Lambda pode ter criado com dados parciais)
+      existingImage.ambiente = dto.ambiente;
+      existingImage.tipoAmbiente = dto.tipoAmbiente;
+      existingImage.tipo = dto.tipo || null;
+      existingImage.categoria = dto.categoria || 'VISTORIA';
+      existingImage.avariaLocal = dto.avariaLocal || null;
+      existingImage.descricao = dto.descricao || null;
+      existingImage.ordem = dto.ordem || 0;
+      existingImage.ambienteComentario = dto.ambienteComentario || null;
+      return await this.imagemLaudoRepository.save(existingImage);
+    }
+
+    // Criar registro da imagem COM metadados
+    try {
+      const imagem = this.imagemLaudoRepository.create({
+        laudoId: dto.laudoId,
+        usuarioId: userId,
+        s3Key: dto.s3Key,
+        ambiente: dto.ambiente,
+        tipoAmbiente: dto.tipoAmbiente,
+        tipo: dto.tipo || null,
+        categoria: dto.categoria || 'VISTORIA',
+        avariaLocal: dto.avariaLocal || null,
+        descricao: dto.descricao || null,
+        ordem: dto.ordem || 0,
+        ambienteComentario: dto.ambienteComentario || null,
+        imagemJaFoiAnalisadaPelaIa: 'nao',
+      });
+      return await this.imagemLaudoRepository.save(imagem);
+    } catch (error) {
+      const pgErrorCode = error.code || error.driverError?.code;
+      if (pgErrorCode === '23505') {
+        // Se der unique violation, retornar o registro existente
+        return await this.imagemLaudoRepository.findOne({ where: { s3Key: dto.s3Key } });
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Atualiza metadados de uma imagem (para troca manual de item no web)
+   */
+  async updateImagemMetadata(
+    userId: string,
+    imagemId: string,
+    metadata: {
+      ambiente?: string;
+      tipoAmbiente?: string;
+      tipo?: string;
+      categoria?: string;
+      avariaLocal?: string;
+      descricao?: string;
+      ordem?: number;
+      ambienteComentario?: string;
+    },
+    userRole: UserRole,
+  ): Promise<ImagemLaudo> {
+    const imagem = await this.imagemLaudoRepository.findOne({
+      where: { id: imagemId },
+    });
+
+    if (!imagem) {
+      throw new NotFoundException('Imagem não encontrada');
+    }
+
+    // Verificar permissão
+    const isOwner = imagem.usuarioId === userId;
+    const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
+
+    if (!isOwner && !isAdminOrDev) {
+      throw new ForbiddenException('Você não tem permissão para editar esta imagem');
+    }
+
+    // Atualizar apenas os campos que foram enviados
+    if (metadata.ambiente !== undefined) imagem.ambiente = metadata.ambiente;
+    if (metadata.tipoAmbiente !== undefined) imagem.tipoAmbiente = metadata.tipoAmbiente;
+    if (metadata.tipo !== undefined) imagem.tipo = metadata.tipo;
+    if (metadata.categoria !== undefined) imagem.categoria = metadata.categoria;
+    if (metadata.avariaLocal !== undefined) imagem.avariaLocal = metadata.avariaLocal;
+    if (metadata.descricao !== undefined) imagem.descricao = metadata.descricao;
+    if (metadata.ordem !== undefined) imagem.ordem = metadata.ordem;
+    if (metadata.ambienteComentario !== undefined) imagem.ambienteComentario = metadata.ambienteComentario;
+
+    // Reset da análise IA se algum campo relevante mudar
+    if (metadata.tipo !== undefined || metadata.tipoAmbiente !== undefined) {
+      imagem.imagemJaFoiAnalisadaPelaIa = 'nao';
+      imagem.legenda = 'sem legenda';
+    }
+
+    return await this.imagemLaudoRepository.save(imagem);
   }
 
   /**
@@ -686,6 +848,106 @@ export class UploadsService {
     }
 
     return urls;
+  }
+
+  /**
+   * Classifica um item via web usando Inteligência Artificial.
+   * Consome 1 crédito de classificação web.
+   */
+  async classifyWebItem(userId: string, dto: ClassifyItemWebDto) {
+    const { s3Key, tipoAmbiente } = dto;
+
+    const usuario = await this.usuarioRepository.findOne({ where: { id: userId } });
+    if (!usuario) throw new NotFoundException('Usuário não encontrado');
+
+    const ilimitado = [UserRole.DEV, UserRole.ADMIN].includes(usuario.role);
+    if (!ilimitado && (usuario.quantidadeClassificacoesWeb || 0) <= 0) {
+      throw new BadRequestException('Você não possui créditos de classificação web suficientes.');
+    }
+
+    // 1. Encontrar o ambiente base
+    const tipoAmbienteNormalizado = normalizeForMatch(tipoAmbiente);
+    const ambientes = await this.ambienteRepository.find();
+    let ambiente = ambientes.find((a) => textMatches(a.nome, tipoAmbiente));
+    
+    if (!ambiente) {
+      ambiente = ambientes.find((a) => {
+        const nomeNorm = normalizeForMatch(a.nome);
+        return nomeNorm.includes(tipoAmbienteNormalizado) || tipoAmbienteNormalizado.includes(nomeNorm);
+      });
+    }
+
+    if (!ambiente) {
+      return { item: 'Não identificado', success: false, message: 'Ambiente não encontrado.' };
+    }
+
+    // Buscar itens pai ativos desse ambiente e dos agrupados
+    const ambientesPai = ambiente.grupoId
+      ? await this.ambienteRepository.find({ where: { grupoId: ambiente.grupoId } })
+      : [ambiente];
+    const ambienteIds = ambientesPai.map(a => a.id);
+
+    // Buscar itens pai
+    // Precisamos buscar os pais usando querybuilder para poder tratar os nulos corretamente
+    const query = this.itemAmbienteRepository.createQueryBuilder('item')
+      .where('item.ambienteId IN (:...ambienteIds)', { ambienteIds })
+      .andWhere('item.ativo = :ativo', { ativo: true })
+      .andWhere('item.parentId IS NULL')
+      .leftJoinAndSelect('item.filhos', 'filhos'); // vamos carregar os filhos tbm? A IA da fase 1 busca o pai
+    const itensBrutos = await query.getMany();
+
+    // Como o app tem muita duplicata as vezes, pegamos o melhor de cada nome
+    const itensPorNome = new Map<string, ItemAmbiente>();
+    for (const item of itensBrutos) {
+      const chave = normalizeForMatch(item.nome);
+      itensPorNome.set(chave, item); // Simplificado para web
+    }
+
+    const itemsPaiAtivos = Array.from(itensPorNome.values());
+    if (itemsPaiAtivos.length === 0) {
+      return { item: 'Não identificado', success: false, message: 'Sem itens cadastrados no ambiente.' };
+    }
+
+    // Gerar a URL assinada de GET
+    const command = new GetObjectCommand({
+      Bucket: this.bucketName,
+      Key: s3Key,
+    });
+    const urlImagem = await getSignedUrl(this.s3Client, command, { expiresIn: 3600 });
+
+    // Montar o prompt de identificação do PAI
+    const itemsListString = itemsPaiAtivos.map((i) => `- ${i.nome}`).join('\\n');
+    const identifyPrompt = `Analise esta imagem em um(a) ${tipoAmbiente}.
+Abaixo está uma lista **estrita** de opções possíveis de Itens.
+Responda APENAS com o NOME EXATO de uma das opções abaixo que melhor descreve o objeto em destaque na foto.
+Se a imagem for de uma pessoa, documento, ou não pertencer a nenhuma das opções, responda apenas "Nao identificado".
+
+OPÇÕES:
+${itemsListString}`;
+
+    // Chamar OpenAI
+    const aiResult = await this.openaiService.analyzeImage(urlImagem, identifyPrompt);
+    if (!aiResult.success || !aiResult.content) {
+      return { item: 'Não identificado', success: false, message: 'Falha na análise da imagem.' };
+    }
+
+    // Usar identifyChildItem que já tem a lógica de match para achar o pai correto
+    const identificaçãoPai = this.openaiService.identifyChildItem(aiResult.content, itemsPaiAtivos.map(i => i.nome));
+    
+    // Decrementar crédito
+    if (!ilimitado) {
+      await this.usuarioRepository.decrement({ id: userId }, 'quantidadeClassificacoesWeb', 1);
+    }
+
+    if (!identificaçãoPai) {
+      return { item: 'Não identificado', success: false, message: 'Nenhum item reconhecido.' };
+    }
+
+    return { 
+      item: identificaçãoPai, 
+      success: true, 
+      creditosRestantes: ilimitado ? 999 : (usuario.quantidadeClassificacoesWeb - 1) 
+    };
   }
 
   async getSignedUrlForAi(s3Key: string): Promise<string> {

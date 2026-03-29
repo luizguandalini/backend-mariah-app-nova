@@ -247,6 +247,81 @@ export class AmbientesService {
   }
 
   /**
+   * Listar nomes de ambientes com paginação e pesquisa inteligente
+   * Usado pelo frontend web para seletor de tipo de ambiente com scroll infinito
+   */
+  async listarNomesPaginado(
+    limit: number = 20,
+    offset: number = 0,
+    search?: string,
+    tipoUso?: string,
+    tipoImovel?: string,
+  ): Promise<{ data: { nome: string; tiposUso: string[]; tiposImovel: string[] }[]; total: number; hasMore: boolean }> {
+    let qb = this.ambienteRepository
+      .createQueryBuilder('ambiente')
+      .select(['ambiente.nome', 'ambiente.tiposUso', 'ambiente.tiposImovel'])
+      .where('ambiente.ativo = :ativo', { ativo: true })
+      // Apenas ambientes com tipos configurados
+      .andWhere('COALESCE(array_length(ambiente.tipos_uso, 1), 0) > 0')
+      .andWhere('COALESCE(array_length(ambiente.tipos_imovel, 1), 0) > 0')
+      // Apenas ambientes com pelo menos 1 item PAI ativo com prompt
+      .andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM itens_ambiente item
+          WHERE item.ambiente_id = ambiente.id
+            AND item.ativo = true
+            AND item.parent_id IS NULL
+            AND LENGTH(TRIM(COALESCE(item.prompt, ''))) > 0
+        )`,
+      );
+
+    // Filtro por tipo de uso (case insensitive)
+    if (tipoUso) {
+      qb = qb.andWhere(':tipoUso = ANY(ambiente.tipos_uso)', { tipoUso });
+    }
+
+    // Filtro por tipo de imóvel (case insensitive using ILIKE for array elements)
+    if (tipoImovel) {
+      qb = qb.andWhere(
+        `EXISTS (SELECT 1 FROM unnest(ambiente.tipos_imovel) AS ti WHERE LOWER(ti) = LOWER(:tipoImovel))`,
+        { tipoImovel },
+      );
+    }
+
+    // Pesquisa inteligente (insensível a acentos e case)
+    if (search && search.trim()) {
+      qb = qb.andWhere(
+        `unaccent(LOWER(ambiente.nome)) LIKE unaccent(LOWER(:search))`,
+        { search: `%${search.trim()}%` },
+      );
+    }
+
+    qb = qb.orderBy('ambiente.nome', 'ASC');
+
+    const allResults = await qb.getMany();
+
+    // Deduplicar por nome
+    const uniqueMap = new Map<string, { nome: string; tiposUso: string[]; tiposImovel: string[] }>();
+    for (const a of allResults) {
+      if (!uniqueMap.has(a.nome)) {
+        uniqueMap.set(a.nome, {
+          nome: a.nome,
+          tiposUso: a.tiposUso || [],
+          tiposImovel: a.tiposImovel || [],
+        });
+      }
+    }
+
+    const uniqueNomes = Array.from(uniqueMap.values());
+    const total = uniqueNomes.length;
+    const data = uniqueNomes.slice(offset, offset + limit);
+    const hasMore = offset + limit < total;
+
+    return { data, total, hasMore };
+  }
+
+  /**
    * Buscar itens PAI de um ambiente por nome (para app mobile - câmera)
    * - Busca ambiente(s) pelo nome (case-insensitive)
    * - Se ambiente faz parte de grupo, consolida itens de todos do grupo

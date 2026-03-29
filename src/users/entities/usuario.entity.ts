@@ -25,6 +25,9 @@ export class Usuario {
   @Column({ type: 'int', default: 0 })
   quantidadeImagens: number;
 
+  @Column({ name: 'quantidade_classificacoes_web', type: 'int', default: 0 })
+  quantidadeClassificacoesWeb: number;
+
   @Column({ type: 'boolean', default: true })
   ativo: boolean;
 

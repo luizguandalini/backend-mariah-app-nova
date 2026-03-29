@@ -52,6 +52,27 @@ export class AmbientesController {
     return this.ambientesService.listarNomes();
   }
 
+  @Get('listar-nomes-paginado')
+  @ApiOperation({
+    summary: 'Listar nomes de ambientes com paginação e pesquisa inteligente (para web)',
+    description: 'Retorna nomes de ambientes filtrados por tipoUso, tipoImovel e pesquisa textual, com paginação via offset/limit.',
+  })
+  listarNomesPaginado(
+    @Query('limit') limit?: number,
+    @Query('offset') offset?: number,
+    @Query('search') search?: string,
+    @Query('tipoUso') tipoUso?: string,
+    @Query('tipoImovel') tipoImovel?: string,
+  ) {
+    return this.ambientesService.listarNomesPaginado(
+      limit ? Number(limit) : 20,
+      offset ? Number(offset) : 0,
+      search,
+      tipoUso,
+      tipoImovel,
+    );
+  }
+
   @Get('todos-com-itens')
   @ApiOperation({ 
     summary: 'Buscar todos os ambientes com seus itens PAI para sincronização (app mobile)',
