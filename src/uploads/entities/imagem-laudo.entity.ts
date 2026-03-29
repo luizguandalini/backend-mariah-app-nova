@@ -71,6 +71,22 @@ export class ImagemLaudo {
   })
   imagemJaFoiAnalisadaPelaIa: string;
 
+  @Column({
+    name: 'item_ja_foi_analisado_pela_ia',
+    type: 'varchar',
+    length: 3,
+    default: 'nao',
+  })
+  itemJaFoiAnalisadoPelaIa: string;
+
+  @Column({
+    name: 'subitem_ja_foi_analisado_pela_ia',
+    type: 'varchar',
+    length: 3,
+    default: 'nao',
+  })
+  subitemJaFoiAnalisadoPelaIa: string;
+
   @Column({ type: 'integer', default: 0 })
   ordem: number;
 

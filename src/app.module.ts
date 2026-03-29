@@ -57,7 +57,7 @@ import { KanbanModule } from './kanban/kanban.module';
           username: dbUsername,
           password: dbPassword,
           database: dbDatabase,
-          entities: [__dirname + '/**/*.entity{.ts,.js}'],
+          autoLoadEntities: true,
           // NUNCA true em produção sem intenção!
           synchronize: dbSynchronize,
           // Em prod, só loga erros; em dev, loga tudo

@@ -873,23 +873,40 @@ export class UploadsService {
 
   /**
    * Classifica um item via web usando Inteligência Artificial.
-   * Consome 1 crédito de classificação web.
    */
   async classifyWebItem(userId: string, dto: ClassifyItemWebDto) {
     const { s3Key, tipoAmbiente } = dto;
 
-    const usuario = await this.usuarioRepository.findOne({ where: { id: userId } });
-    if (!usuario) throw new NotFoundException('Usuário não encontrado');
+    const imagem = await this.imagemLaudoRepository.findOne({
+      where: { s3Key, usuarioId: userId },
+    });
+    if (!imagem) {
+      throw new NotFoundException('Imagem não encontrada para este usuário.');
+    }
 
-    const ilimitado = [UserRole.DEV, UserRole.ADMIN].includes(usuario.role);
-    if (!ilimitado && (usuario.quantidadeClassificacoesWeb || 0) <= 0) {
-      throw new BadRequestException('Você não possui créditos de classificação web suficientes.');
+    if (imagem.itemJaFoiAnalisadoPelaIa === 'sim') {
+      return {
+        item: imagem.tipo || 'Não identificado',
+        success: false,
+        message: 'O tipo de item desta imagem já foi analisado pela IA.',
+      };
+    }
+
+    const tipoAmbienteParaAnalise = tipoAmbiente || imagem.tipoAmbiente;
+    if (!tipoAmbienteParaAnalise) {
+      imagem.itemJaFoiAnalisadoPelaIa = 'sim';
+      await this.imagemLaudoRepository.save(imagem);
+      return {
+        item: 'Não identificado',
+        success: false,
+        message: 'Tipo de ambiente não informado.',
+      };
     }
 
     // 1. Encontrar o ambiente base
-    const tipoAmbienteNormalizado = normalizeForMatch(tipoAmbiente);
+    const tipoAmbienteNormalizado = normalizeForMatch(tipoAmbienteParaAnalise);
     const ambientes = await this.ambienteRepository.find();
-    let ambiente = ambientes.find((a) => textMatches(a.nome, tipoAmbiente));
+    let ambiente = ambientes.find((a) => textMatches(a.nome, tipoAmbienteParaAnalise));
 
     if (!ambiente) {
       ambiente = ambientes.find((a) => {
@@ -901,6 +918,9 @@ export class UploadsService {
     }
 
     if (!ambiente) {
+      imagem.tipo = 'Não identificado';
+      imagem.itemJaFoiAnalisadoPelaIa = 'sim';
+      await this.imagemLaudoRepository.save(imagem);
       return { item: 'Não identificado', success: false, message: 'Ambiente não encontrado.' };
     }
 
@@ -929,6 +949,9 @@ export class UploadsService {
 
     const itemsPaiAtivos = Array.from(itensPorNome.values());
     if (itemsPaiAtivos.length === 0) {
+      imagem.tipo = 'Não identificado';
+      imagem.itemJaFoiAnalisadoPelaIa = 'sim';
+      await this.imagemLaudoRepository.save(imagem);
       return {
         item: 'Não identificado',
         success: false,
@@ -945,7 +968,7 @@ export class UploadsService {
 
     // Montar o prompt de identificação do PAI
     const itemsListString = itemsPaiAtivos.map((i) => `- ${i.nome}`).join('\\n');
-    const identifyPrompt = `Analise esta imagem em um(a) ${tipoAmbiente}.
+    const identifyPrompt = `Analise esta imagem em um(a) ${tipoAmbienteParaAnalise}.
 Abaixo está uma lista **estrita** de opções possíveis de Itens.
 Responda APENAS com o NOME EXATO de uma das opções abaixo que melhor descreve o objeto em destaque na foto.
 Se a imagem for de uma pessoa, documento, ou não pertencer a nenhuma das opções, responda apenas "Nao identificado".
@@ -962,6 +985,9 @@ ${itemsListString}`;
     console.log(`[IA WEB] ← RESPOSTA BRUTA RECEBIDA:`, aiResult.content);
 
     if (!aiResult.success || !aiResult.content) {
+      imagem.tipo = 'Não identificado';
+      imagem.itemJaFoiAnalisadoPelaIa = 'sim';
+      await this.imagemLaudoRepository.save(imagem);
       return { item: 'Não identificado', success: false, message: 'Falha na análise da imagem.' };
     }
 
@@ -975,10 +1001,13 @@ ${itemsListString}`;
       `[IA WEB] ✅ ITEM FINAL PAREADO (Banco de Dados): ${identificaçãoPai || 'Nenhum'}\\n`,
     );
 
-    // Decrementar crédito
-    if (!ilimitado) {
-      await this.usuarioRepository.decrement({ id: userId }, 'quantidadeClassificacoesWeb', 1);
+    imagem.itemJaFoiAnalisadoPelaIa = 'sim';
+    if (identificaçãoPai) {
+      imagem.tipo = identificaçãoPai;
+    } else {
+      imagem.tipo = 'Não identificado';
     }
+    await this.imagemLaudoRepository.save(imagem);
 
     if (!identificaçãoPai) {
       return { item: 'Não identificado', success: false, message: 'Nenhum item reconhecido.' };
@@ -987,7 +1016,6 @@ ${itemsListString}`;
     return {
       item: identificaçãoPai,
       success: true,
-      creditosRestantes: ilimitado ? 999 : usuario.quantidadeClassificacoesWeb - 1,
     };
   }
 

@@ -6,7 +6,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan, MoreThan, IsNull, Not } from 'typeorm';
+import { Repository, LessThan, MoreThan, IsNull, In } from 'typeorm';
 import { AnalysisQueue, AnalysisStatus } from './entities/analysis-queue.entity';
 import { ImagemLaudo } from '../uploads/entities/imagem-laudo.entity';
 import { Laudo, StatusLaudo } from '../laudos/entities/laudo.entity';
@@ -17,7 +17,6 @@ import { normalizeForMatch, textMatches } from '../common/utils/text-normalizer.
 import { RabbitMQService, QueueMessage } from './rabbitmq.service';
 import { UploadsService } from '../uploads/uploads.service';
 import { SystemConfig } from '../config/entities/system-config.entity';
-import { In } from 'typeorm';
 import { QueueGateway } from './queue.gateway';
 import { SystemConfigService } from '../config/config.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -420,16 +419,16 @@ export class QueueService implements OnModuleInit {
 
     try {
       while (true) {
-        // Buscar próxima imagem não analisada
-        const nextImage = await this.imagemRepository.findOne({
-          where: {
-            laudoId,
-            imagemJaFoiAnalisadaPelaIa: 'nao',
-          },
-          order: { ordem: 'ASC' },
-        });
+        const nextTask = await this.getNextTaskForLaudo(laudoId);
 
-        if (!nextImage) {
+        if (!nextTask) {
+          queueItem.status = AnalysisStatus.COMPLETED;
+          queueItem.completedAt = new Date();
+          queueItem.position = null;
+          queueItem.processedImages =
+            queueItem.processedImages < queueItem.totalImages
+              ? queueItem.totalImages
+              : queueItem.processedImages;
           await this.queueRepository.save(queueItem);
           await this.recalculatePositions();
 
@@ -452,28 +451,30 @@ export class QueueService implements OnModuleInit {
         }
 
         // Atualizar imagem atual
-        queueItem.currentImageId = nextImage.id;
+        queueItem.currentImageId = nextTask.imagem.id;
         await this.queueRepository.save(queueItem);
 
-        // Processar imagem
-        const processed = await this.processImage(nextImage, queueItem);
+        const processed =
+          nextTask.type === 'classify-item'
+            ? await this.processItemClassification(nextTask.imagem, queueItem)
+            : await this.processImage(nextTask.imagem, queueItem);
         if (!processed) {
           await new Promise((resolve) => setTimeout(resolve, this.metadataRetryDelayMs));
           continue;
         }
 
-        // Atualizar progresso
-        queueItem.processedImages += 1;
-        await this.queueRepository.save(queueItem);
+        if (nextTask.type === 'analyze-description') {
+          queueItem.processedImages += 1;
+          await this.queueRepository.save(queueItem);
 
-        // Notify progress
-        const percentage = Math.round((queueItem.processedImages / queueItem.totalImages) * 100);
-        this.queueGateway.notifyProgress(laudoId, {
-          laudoId,
-          processedImages: queueItem.processedImages,
-          totalImages: queueItem.totalImages,
-          percentage,
-        });
+          const percentage = Math.round((queueItem.processedImages / queueItem.totalImages) * 100);
+          this.queueGateway.notifyProgress(laudoId, {
+            laudoId,
+            processedImages: queueItem.processedImages,
+            totalImages: queueItem.totalImages,
+            percentage,
+          });
+        }
       }
     } catch (error) {
       this.logger.error(`Erro ao processar laudo ${laudoId}: ${error.message}`);
@@ -527,16 +528,9 @@ export class QueueService implements OnModuleInit {
         this.queueGateway.notifyStatusChange(currentItem.laudoId, AnalysisStatus.PROCESSING);
       }
 
-      // Buscar próxima imagem não analisada
-      const nextImage = await this.imagemRepository.findOne({
-        where: {
-          laudoId: currentItem.laudoId,
-          imagemJaFoiAnalisadaPelaIa: 'nao',
-        },
-        order: { ordem: 'ASC' },
-      });
+      const nextTask = await this.getNextTaskForLaudo(currentItem.laudoId);
 
-      if (!nextImage) {
+      if (!nextTask) {
         // Laudo concluído (Se caiu aqui, é porque já acabou tudo, mesmo que tenha acabado de reiniciar)
         currentItem.status = AnalysisStatus.COMPLETED;
         currentItem.completedAt = new Date();
@@ -574,27 +568,32 @@ export class QueueService implements OnModuleInit {
       }
 
       // Atualizar imagem atual
-      currentItem.currentImageId = nextImage.id;
+      currentItem.currentImageId = nextTask.imagem.id;
       await this.queueRepository.save(currentItem);
 
-      // Processar imagem
-      const processed = await this.processImage(nextImage, currentItem);
+      const processed =
+        nextTask.type === 'classify-item'
+          ? await this.processItemClassification(nextTask.imagem, currentItem)
+          : await this.processImage(nextTask.imagem, currentItem);
       if (!processed) {
         setTimeout(() => this.processNextInQueue(), this.metadataRetryDelayMs);
         return;
       }
 
-      // Atualizar progresso
-      currentItem.processedImages += 1;
-      await this.queueRepository.save(currentItem);
+      if (nextTask.type === 'analyze-description') {
+        currentItem.processedImages += 1;
+        await this.queueRepository.save(currentItem);
 
-      const percentage = Math.round((currentItem.processedImages / currentItem.totalImages) * 100);
-      this.queueGateway.notifyProgress(currentItem.laudoId, {
-        laudoId: currentItem.laudoId,
-        processedImages: currentItem.processedImages,
-        totalImages: currentItem.totalImages,
-        percentage,
-      });
+        const percentage = Math.round(
+          (currentItem.processedImages / currentItem.totalImages) * 100,
+        );
+        this.queueGateway.notifyProgress(currentItem.laudoId, {
+          laudoId: currentItem.laudoId,
+          processedImages: currentItem.processedImages,
+          totalImages: currentItem.totalImages,
+          percentage,
+        });
+      }
 
       // Trigger next image processing immediately (chaining)
       setTimeout(() => this.processNextInQueue(), 1000);
@@ -615,6 +614,93 @@ export class QueueService implements OnModuleInit {
     }
   }
 
+  private async getNextTaskForLaudo(
+    laudoId: string,
+  ): Promise<{ imagem: ImagemLaudo; type: 'classify-item' | 'analyze-description' } | null> {
+    const tiposNaoIdentificados = ['Não identificado', 'Nao identificado'];
+
+    const imagemSemItem = await this.imagemRepository
+      .createQueryBuilder('img')
+      .where('img.laudo_id = :laudoId', { laudoId })
+      .andWhere('(img.tipo IS NULL OR img.tipo IN (:...tiposNaoIdentificados))', {
+        tiposNaoIdentificados,
+      })
+      .andWhere('img.item_ja_foi_analisado_pela_ia = :nao', { nao: 'nao' })
+      .orderBy('img.ordem', 'ASC')
+      .addOrderBy('img.created_at', 'ASC')
+      .getOne();
+
+    if (imagemSemItem) {
+      return { imagem: imagemSemItem, type: 'classify-item' };
+    }
+
+    const imagemParaDescricao = await this.imagemRepository.findOne({
+      where: {
+        laudoId,
+        imagemJaFoiAnalisadaPelaIa: 'nao',
+      },
+      order: { ordem: 'ASC' },
+    });
+
+    if (!imagemParaDescricao) {
+      return null;
+    }
+
+    return { imagem: imagemParaDescricao, type: 'analyze-description' };
+  }
+
+  private async processItemClassification(
+    imagem: ImagemLaudo,
+    queueItem: AnalysisQueue,
+  ): Promise<boolean> {
+    const currentStatus = await this.queueRepository.findOne({
+      where: { id: queueItem.id },
+    });
+    if (currentStatus?.status === AnalysisStatus.CANCELLED) {
+      throw new Error('Análise cancelada pelo usuário');
+    }
+
+    if (imagem.itemJaFoiAnalisadoPelaIa === 'sim') {
+      return true;
+    }
+
+    const tipoAtual = (imagem.tipo || '').trim();
+    const tipoEhNaoIdentificado =
+      !tipoAtual ||
+      textMatches(tipoAtual, 'Não identificado') ||
+      textMatches(tipoAtual, 'Nao identificado');
+
+    if (!tipoEhNaoIdentificado || !imagem.tipoAmbiente) {
+      imagem.itemJaFoiAnalisadoPelaIa = 'sim';
+      await this.imagemRepository.save(imagem);
+      return true;
+    }
+
+    this.logger.log(
+      `[AUTO-CLASSIFY] Imagem ${imagem.id} sem item definido. Classificando antes da análise de descrição...`,
+    );
+
+    try {
+      const autoClassResult = await this.autoClassifyItem(imagem, imagem.tipoAmbiente);
+      if (autoClassResult) {
+        imagem.tipo = autoClassResult;
+        this.logger.log(`[AUTO-CLASSIFY] ✅ Item classificado como: ${autoClassResult}`);
+      } else {
+        imagem.tipo = 'Não identificado';
+        this.logger.warn(
+          `[AUTO-CLASSIFY] ❌ Não foi possível classificar a imagem ${imagem.id}. Seguirá para descrição com item não identificado.`,
+        );
+      }
+    } catch (err) {
+      imagem.tipo = 'Não identificado';
+      this.logger.error(`[AUTO-CLASSIFY] Erro ao classificar imagem ${imagem.id}: ${err.message}`);
+    }
+
+    imagem.itemJaFoiAnalisadoPelaIa = 'sim';
+    await this.imagemRepository.save(imagem);
+    return true;
+  }
+
   /**
    * Processa uma imagem individual
    */
@@ -632,7 +718,7 @@ export class QueueService implements OnModuleInit {
 
     // Buscar prompt baseado no tipo e tipo_ambiente
     const tipoAmbiente = imagem.tipoAmbiente;
-    let tipoItem = imagem.tipo;
+    const tipoItem = imagem.tipo;
 
     if (!tipoAmbiente || !tipoItem) {
       const createdAtMs = imagem.createdAt ? new Date(imagem.createdAt).getTime() : Date.now();
@@ -660,36 +746,6 @@ export class QueueService implements OnModuleInit {
       imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
       await this.imagemRepository.save(imagem);
       return true;
-    }
-
-    // ===== AUTO-CLASSIFICAÇÃO DE ITENS (fluxo web) =====
-    // Se o item está como 'Não identificado', tentar classificar automaticamente via IA
-    if (tipoItem === 'Não identificado' && tipoAmbiente) {
-      this.logger.log(`[AUTO-CLASSIFY] Imagem ${imagem.id} sem item definido. Tentando classificar automaticamente...`);
-
-      try {
-        const autoClassResult = await this.autoClassifyItem(imagem, tipoAmbiente);
-        if (autoClassResult) {
-          tipoItem = autoClassResult;
-          imagem.tipo = autoClassResult;
-          await this.imagemRepository.save(imagem);
-          this.logger.log(`[AUTO-CLASSIFY] ✅ Item classificado como: ${autoClassResult}`);
-        } else {
-          this.logger.warn(`[AUTO-CLASSIFY] ❌ Não foi possível classificar a imagem ${imagem.id}`);
-          // Continuar sem item identificado — será marcado como erro na análise
-          imagem.legenda = 'Item não identificado pela IA';
-          imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
-          await this.imagemRepository.save(imagem);
-          return true;
-        }
-      } catch (err) {
-        this.logger.error(`[AUTO-CLASSIFY] Erro ao classificar imagem ${imagem.id}: ${err.message}`);
-        // Não falhar a fila inteira, só pular esta imagem
-        imagem.legenda = 'Erro na classificação automática';
-        imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
-        await this.imagemRepository.save(imagem);
-        return true;
-      }
     }
 
     const laudo = await this.laudoRepository.findOne({
@@ -890,6 +946,7 @@ export class QueueService implements OnModuleInit {
       });
 
       const identifyResult = await this.openaiService.analyzeImage(imageUrl, identifyPrompt);
+      imagem.subitemJaFoiAnalisadoPelaIa = 'sim';
 
       if (!identifyResult.success) {
         // Verificar se é erro crítico que deve pausar a fila
@@ -1256,7 +1313,10 @@ ${bgBlue}${white}${bold}╚═════════════════�
    * Usa a mesma lógica do classifyWebItem mas sem consumir créditos de classificação,
    * pois está sendo feito como parte da análise de descrição (que já consumiu crédito de imagem).
    */
-  private async autoClassifyItem(imagem: ImagemLaudo, tipoAmbiente: string): Promise<string | null> {
+  private async autoClassifyItem(
+    imagem: ImagemLaudo,
+    tipoAmbiente: string,
+  ): Promise<string | null> {
     // 1. Encontrar o ambiente base
     const tipoAmbienteNormalizado = normalizeForMatch(tipoAmbiente);
     const ambientes = await this.ambienteRepository.find();
@@ -1265,7 +1325,9 @@ ${bgBlue}${white}${bold}╚═════════════════�
     if (!ambiente) {
       ambiente = ambientes.find((a) => {
         const nomeNorm = normalizeForMatch(a.nome);
-        return nomeNorm.includes(tipoAmbienteNormalizado) || tipoAmbienteNormalizado.includes(nomeNorm);
+        return (
+          nomeNorm.includes(tipoAmbienteNormalizado) || tipoAmbienteNormalizado.includes(nomeNorm)
+        );
       });
     }
 
@@ -1278,7 +1340,7 @@ ${bgBlue}${white}${bold}╚═════════════════�
     const ambientesPai = ambiente.grupoId
       ? await this.ambienteRepository.find({ where: { grupoId: ambiente.grupoId } })
       : [ambiente];
-    const ambienteIds = ambientesPai.map(a => a.id);
+    const ambienteIds = ambientesPai.map((a) => a.id);
 
     const itensBrutos = await this.itemRepository
       .createQueryBuilder('item')
@@ -1313,7 +1375,9 @@ Se a imagem for de uma pessoa, documento, ou não pertencer a nenhuma das opçõ
 OPÇÕES:
 ${itemsListString}`;
 
-    this.logger.debug(`[AUTO-CLASSIFY] Prompt para imagem ${imagem.id}: ${identifyPrompt.substring(0, 200)}...`);
+    this.logger.debug(
+      `[AUTO-CLASSIFY] Prompt para imagem ${imagem.id}: ${identifyPrompt.substring(0, 200)}...`,
+    );
 
     // 5. Chamar OpenAI
     const aiResult = await this.openaiService.analyzeImage(imageUrl, identifyPrompt);
@@ -1326,10 +1390,12 @@ ${itemsListString}`;
     // 6. Match do resultado com os itens disponíveis
     const identificacaoPai = this.openaiService.identifyChildItem(
       aiResult.content,
-      itemsPaiAtivos.map(i => i.nome),
+      itemsPaiAtivos.map((i) => i.nome),
     );
 
-    this.logger.log(`[AUTO-CLASSIFY] Resultado para ${imagem.id}: "${aiResult.content}" → Matched: "${identificacaoPai || 'Nenhum'}"`);
+    this.logger.log(
+      `[AUTO-CLASSIFY] Resultado para ${imagem.id}: "${aiResult.content}" → Matched: "${identificacaoPai || 'Nenhum'}"`,
+    );
 
     return identificacaoPai || null;
   }
