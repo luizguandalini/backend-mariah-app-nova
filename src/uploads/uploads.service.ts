@@ -568,7 +568,7 @@ export class UploadsService {
 
     // Adicionar ordenação pelo prefixo numérico e paginação
     const ambientesRaw = await queryBuilder
-      .orderBy("CAST(NULLIF(SPLIT_PART(img.ambiente, ' - ', 1), '') AS INTEGER)", 'ASC', 'NULLS LAST')
+      .orderBy("CAST(SUBSTRING(img.ambiente FROM '^[0-9]+') AS INTEGER)", 'ASC', 'NULLS LAST')
       .offset((page - 1) * limit)
       .limit(limit)
       .getRawMany();
@@ -644,6 +644,7 @@ export class UploadsService {
           id: img.id,
           url,
           ambiente: img.ambiente,
+          tipoAmbiente: img.tipoAmbiente,
           ambienteComentario: img.ambienteComentario,
           tipo: img.tipo,
           categoria: img.categoria,
