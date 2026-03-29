@@ -925,14 +925,22 @@ Se a imagem for de uma pessoa, documento, ou não pertencer a nenhuma das opçõ
 OPÇÕES:
 ${itemsListString}`;
 
+    console.log(`\\n[IA WEB] → PROMPT ENVIADO PARA: ${s3Key}`);
+    console.log(identifyPrompt);
+
     // Chamar OpenAI
     const aiResult = await this.openaiService.analyzeImage(urlImagem, identifyPrompt);
+    
+    console.log(`[IA WEB] ← RESPOSTA BRUTA RECEBIDA:`, aiResult.content);
+
     if (!aiResult.success || !aiResult.content) {
       return { item: 'Não identificado', success: false, message: 'Falha na análise da imagem.' };
     }
 
     // Usar identifyChildItem que já tem a lógica de match para achar o pai correto
     const identificaçãoPai = this.openaiService.identifyChildItem(aiResult.content, itemsPaiAtivos.map(i => i.nome));
+    
+    console.log(`[IA WEB] ✅ ITEM FINAL PAREADO (Banco de Dados): ${identificaçãoPai || 'Nenhum'}\\n`);
     
     // Decrementar crédito
     if (!ilimitado) {

@@ -106,6 +106,14 @@ export class SystemConfigController {
     return this.configService.getTiposImovelPorUso();
   }
 
+  @Get('tipos-imovel/nomes/:tipoUso')
+  @ApiOperation({
+    summary: 'Listar apenas os nomes de tipos de imóvel para um tipo de uso específico',
+  })
+  async getNomesPorUso(@Param('tipoUso') tipoUso: string) {
+    return this.configService.getNomesPorUso(tipoUso);
+  }
+
   @Post('tipos-imovel')
   @Roles(UserRole.DEV, UserRole.ADMIN)
   @ApiOperation({ summary: 'Criar tipo de imóvel' })

@@ -217,6 +217,14 @@ export class SystemConfigService implements OnModuleInit {
     }, {});
   }
 
+  async getNomesPorUso(tipoUso: string): Promise<string[]> {
+    const ativos = (await this.getTiposImovelRaw())
+      .filter((item) => item.ativo && item.tipoUso === tipoUso)
+      .sort((a, b) => a.ordem - b.ordem);
+
+    return ativos.map((item) => item.nome);
+  }
+
   async createTipoImovel(nome: string, tipoUso: string, userId: string) {
     const nomeNormalizado = nome?.trim();
     if (!nomeNormalizado) {

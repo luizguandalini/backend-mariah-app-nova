@@ -3,9 +3,10 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { StatusLaudo, TipoVistoria, TipoUso } from '../entities/laudo.entity';
 
 export class CreateLaudoDto {
-  @ApiProperty({ description: 'ID do usuário' })
+  @ApiPropertyOptional({ description: 'ID do usuário' })
   @IsUUID()
-  usuarioId: string;
+  @IsOptional()
+  usuarioId?: string;
 
   @ApiProperty({ description: 'Endereço completo do imóvel' })
   @IsString()

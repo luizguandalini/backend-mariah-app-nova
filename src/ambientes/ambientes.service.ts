@@ -289,10 +289,10 @@ export class AmbientesService {
       );
     }
 
-    // Pesquisa inteligente (insensível a acentos e case)
+    // Pesquisa inteligente (case insensitive)
     if (search && search.trim()) {
       qb = qb.andWhere(
-        `unaccent(LOWER(ambiente.nome)) LIKE unaccent(LOWER(:search))`,
+        `ambiente.nome ILIKE :search`,
         { search: `%${search.trim()}%` },
       );
     }

@@ -43,7 +43,7 @@ export class LaudosController {
   @Post()
   @ApiOperation({ summary: 'Criar novo laudo' })
   @ApiResponse({ status: 201, description: 'Laudo criado com sucesso' })
-  async create(@Body() createLaudoDto: CreateLaudoDto): Promise<Laudo> {
+  async create(@Body() createLaudoDto: CreateLaudoDto, @CurrentUser() user: any): Promise<Laudo> { createLaudoDto.usuarioId = user?.id || user?.sub;
     return await this.laudosService.create(createLaudoDto);
   }
 

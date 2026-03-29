@@ -205,7 +205,17 @@ export class LaudosService {
   }
 
   async create(createLaudoDto: CreateLaudoDto): Promise<Laudo> {
-    const laudo = this.laudoRepository.create(createLaudoDto);
+    if (!createLaudoDto.usuarioId) {
+      throw new Error('usuarioId não foi fornecido ao criar o laudo.');
+    }
+    
+    // TypeORM requer o objeto de relacionamento preenchido para chaves estrangeiras, 
+    // além da coluna simples, em alguns setups confiltantes de @JoinColumn + @Column.
+    const laudo = this.laudoRepository.create({
+      ...createLaudoDto,
+      usuario: { id: createLaudoDto.usuarioId }
+    });
+    
     return await this.laudoRepository.save(laudo);
   }
 
