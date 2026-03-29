@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsInt, Min } from 'class-validator';
+import { IsString, IsOptional, IsInt, Min, Max } from 'class-validator';
 
 export class UpdateImagemMetadataDto {
   @IsOptional()
@@ -28,6 +28,7 @@ export class UpdateImagemMetadataDto {
   @IsOptional()
   @IsInt()
   @Min(0)
+  @Max(2147483647)
   ordem?: number;
 
   @IsOptional()

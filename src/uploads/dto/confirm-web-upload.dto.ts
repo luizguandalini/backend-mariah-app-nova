@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsInt, Min, IsEnum } from 'class-validator';
+import { IsString, IsOptional, IsInt, Min, Max, IsEnum } from 'class-validator';
 
 export class ConfirmWebUploadDto {
   @IsString()
@@ -32,9 +32,18 @@ export class ConfirmWebUploadDto {
   @IsOptional()
   @IsInt()
   @Min(0)
+  @Max(2147483647)
   ordem?: number;
 
   @IsOptional()
   @IsString()
   ambienteComentario?: string;
+
+  @IsOptional()
+  @IsString()
+  uploadSessionId?: string;
+
+  @IsOptional()
+  @IsString()
+  clientFileId?: string;
 }

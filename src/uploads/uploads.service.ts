@@ -3,11 +3,19 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, DeleteObjectsCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+  DeleteObjectsCommand,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { ImagemLaudo } from './entities/imagem-laudo.entity';
 import { Usuario } from '../users/entities/usuario.entity';
@@ -34,6 +42,8 @@ export interface PresignedUrlResponse {
 
 @Injectable()
 export class UploadsService {
+  private static readonly MAX_ORDEM_INT = 2147483647;
+  private readonly logger = new Logger(UploadsService.name);
   private s3Client: S3Client;
   private bucketName: string;
 
@@ -53,7 +63,7 @@ export class UploadsService {
     private readonly configService: ConfigService,
   ) {
     this.bucketName = this.configService.get<string>('S3_BUCKET_NAME', 'mariah-app-uploads-prod');
-    
+
     this.s3Client = new S3Client({
       region: this.configService.get<string>('AWS_REGION', 'us-east-1'),
       credentials: {
@@ -67,10 +77,7 @@ export class UploadsService {
    * Verifica se o usuário pode fazer upload de N imagens
    * Retorna informações sobre o limite disponível
    */
-  async checkUploadLimit(
-    userId: string,
-    dto: CheckLimitDto,
-  ): Promise<CheckLimitResponse> {
+  async checkUploadLimit(userId: string, dto: CheckLimitDto): Promise<CheckLimitResponse> {
     const usuario = await this.usuarioRepository.findOne({
       where: { id: userId },
     });
@@ -84,7 +91,8 @@ export class UploadsService {
         canUpload: false,
         available: usuario?.quantidadeImagens || 0,
         required: dto.totalFotos,
-        message: 'O limite máximo de envio simultâneo é de 100 imagens. Por favor, arraste blocos menores.',
+        message:
+          'O limite máximo de envio simultâneo é de 100 imagens. Por favor, arraste blocos menores.',
       };
     }
 
@@ -113,10 +121,10 @@ export class UploadsService {
   /**
    * Gera URL pré-assinada para upload direto ao S3
    */
-  async generatePresignedUrl(
-    userId: string,
-    dto: PresignedUrlDto,
-  ): Promise<PresignedUrlResponse> {
+  async generatePresignedUrl(userId: string, dto: PresignedUrlDto): Promise<PresignedUrlResponse> {
+    this.logger.log(
+      `[PRESIGNED][START] userId=${userId} laudoId=${dto.laudoId} filename="${dto.filename}"`,
+    );
     // Verificar se o usuário tem créditos disponíveis (SEGURANÇA)
     const usuario = await this.usuarioRepository.findOne({
       where: { id: userId },
@@ -149,12 +157,10 @@ export class UploadsService {
     }
 
     // Sanitizar filename
-    const safeFilename = dto.filename
-      .replace(/[^a-zA-Z0-9._-]/g, '_')
-      .substring(0, 100);
+    const safeFilename = dto.filename.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 100);
 
     // Estrutura: users/{userId}/laudos/{laudoId}/{filename}
-    const s3Key = `users/${userId}/laudos/${dto.laudoId}/${Date.now()}_${safeFilename}`;
+    const s3Key = `users/${userId}/laudos/${dto.laudoId}/${randomUUID()}_${safeFilename}`;
 
     const command = new PutObjectCommand({
       Bucket: this.bucketName,
@@ -167,6 +173,7 @@ export class UploadsService {
       expiresIn: 900,
     });
 
+    this.logger.log(`[PRESIGNED][DONE] userId=${userId} laudoId=${dto.laudoId} s3Key="${s3Key}"`);
     return { uploadUrl, s3Key };
   }
 
@@ -222,7 +229,8 @@ export class UploadsService {
       // Isso é esperado e não é problema
       // TypeORM encapsula o erro do driver em driverError
       const pgErrorCode = error.code || error.driverError?.code;
-      if (pgErrorCode === '23505') { // PostgreSQL unique violation
+      if (pgErrorCode === '23505') {
+        // PostgreSQL unique violation
         return;
       }
       throw error; // Outros erros devem ser propagados
@@ -247,8 +255,13 @@ export class UploadsService {
       descricao?: string;
       ordem?: number;
       ambienteComentario?: string;
+      uploadSessionId?: string;
+      clientFileId?: string;
     },
-  ): Promise<ImagemLaudo> {
+  ): Promise<any> {
+    this.logger.log(
+      `[CONFIRM_WEB][START] session=${dto.uploadSessionId || '-'} fileId=${dto.clientFileId || '-'} userId=${userId} laudoId=${dto.laudoId} ambiente="${dto.ambiente}" tipoAmbiente="${dto.tipoAmbiente}" ordem=${dto.ordem ?? 0} s3Key="${dto.s3Key}"`,
+    );
     // Decrementar créditos (igual ao confirmUpload normal)
     await this.usuarioRepository.manager.transaction(async (transactionalEntityManager) => {
       const usuario = await transactionalEntityManager.findOne(Usuario, {
@@ -288,16 +301,15 @@ export class UploadsService {
     });
 
     if (existingImage) {
-      // Atualizar metadados se já existir (Lambda pode ter criado com dados parciais)
-      existingImage.ambiente = dto.ambiente;
-      existingImage.tipoAmbiente = dto.tipoAmbiente;
-      existingImage.tipo = dto.tipo || null;
-      existingImage.categoria = dto.categoria || 'VISTORIA';
-      existingImage.avariaLocal = dto.avariaLocal || null;
-      existingImage.descricao = dto.descricao || null;
-      existingImage.ordem = dto.ordem || 0;
-      existingImage.ambienteComentario = dto.ambienteComentario || null;
-      return await this.imagemLaudoRepository.save(existingImage);
+      this.logger.log(
+        `[CONFIRM_WEB][UPDATE_EXISTING] session=${dto.uploadSessionId || '-'} fileId=${dto.clientFileId || '-'} imageId=${existingImage.id} s3Key="${dto.s3Key}"`,
+      );
+      this.aplicarMetadadosWeb(existingImage, dto);
+      const imagemAtualizada = await this.imagemLaudoRepository.save(existingImage);
+      this.logger.log(
+        `[CONFIRM_WEB][DONE_UPDATE] session=${dto.uploadSessionId || '-'} fileId=${dto.clientFileId || '-'} imageId=${imagemAtualizada.id} ambiente="${imagemAtualizada.ambiente}" ordem=${imagemAtualizada.ordem} s3Key="${imagemAtualizada.s3Key}"`,
+      );
+      return this.buildImagemResponse(imagemAtualizada);
     }
 
     // Criar registro da imagem COM metadados
@@ -312,17 +324,41 @@ export class UploadsService {
         categoria: dto.categoria || 'VISTORIA',
         avariaLocal: dto.avariaLocal || null,
         descricao: dto.descricao || null,
-        ordem: dto.ordem || 0,
+        ordem: this.normalizarOrdem(dto.ordem),
         ambienteComentario: dto.ambienteComentario || null,
         imagemJaFoiAnalisadaPelaIa: 'nao',
       });
-      return await this.imagemLaudoRepository.save(imagem);
+      const imagemSalva = await this.imagemLaudoRepository.save(imagem);
+      this.logger.log(
+        `[CONFIRM_WEB][DONE_INSERT] session=${dto.uploadSessionId || '-'} fileId=${dto.clientFileId || '-'} imageId=${imagemSalva.id} ambiente="${imagemSalva.ambiente}" ordem=${imagemSalva.ordem} s3Key="${imagemSalva.s3Key}"`,
+      );
+      return this.buildImagemResponse(imagemSalva);
     } catch (error) {
       const pgErrorCode = error.code || error.driverError?.code;
       if (pgErrorCode === '23505') {
-        // Se der unique violation, retornar o registro existente
-        return await this.imagemLaudoRepository.findOne({ where: { s3Key: dto.s3Key } });
+        this.logger.warn(
+          `[CONFIRM_WEB][DUPLICATE_KEY] session=${dto.uploadSessionId || '-'} fileId=${dto.clientFileId || '-'} s3Key="${dto.s3Key}"`,
+        );
+        const imagemExistente = await this.buscarImagemPorS3KeyComRetry(dto.s3Key);
+        if (!imagemExistente) {
+          this.logger.error(
+            `[CONFIRM_WEB][DUPLICATE_KEY_NOT_FOUND] session=${dto.uploadSessionId || '-'} fileId=${dto.clientFileId || '-'} s3Key="${dto.s3Key}"`,
+          );
+          throw new NotFoundException(
+            `Imagem com s3Key ${dto.s3Key} não encontrada após conflito de chave única`,
+          );
+        }
+        this.aplicarMetadadosWeb(imagemExistente, dto);
+        const imagemAtualizada = await this.imagemLaudoRepository.save(imagemExistente);
+        this.logger.log(
+          `[CONFIRM_WEB][DONE_DUPLICATE_UPDATE] session=${dto.uploadSessionId || '-'} fileId=${dto.clientFileId || '-'} imageId=${imagemAtualizada.id} ambiente="${imagemAtualizada.ambiente}" ordem=${imagemAtualizada.ordem} s3Key="${imagemAtualizada.s3Key}"`,
+        );
+        return this.buildImagemResponse(imagemAtualizada);
       }
+      this.logger.error(
+        `[CONFIRM_WEB][ERROR] session=${dto.uploadSessionId || '-'} fileId=${dto.clientFileId || '-'} s3Key="${dto.s3Key}"`,
+        error?.stack || String(error),
+      );
       throw error;
     }
   }
@@ -368,8 +404,9 @@ export class UploadsService {
     if (metadata.categoria !== undefined) imagem.categoria = metadata.categoria;
     if (metadata.avariaLocal !== undefined) imagem.avariaLocal = metadata.avariaLocal;
     if (metadata.descricao !== undefined) imagem.descricao = metadata.descricao;
-    if (metadata.ordem !== undefined) imagem.ordem = metadata.ordem;
-    if (metadata.ambienteComentario !== undefined) imagem.ambienteComentario = metadata.ambienteComentario;
+    if (metadata.ordem !== undefined) imagem.ordem = this.normalizarOrdem(metadata.ordem);
+    if (metadata.ambienteComentario !== undefined)
+      imagem.ambienteComentario = metadata.ambienteComentario;
 
     // Reset da análise IA se algum campo relevante mudar
     if (metadata.tipo !== undefined || metadata.tipoAmbiente !== undefined) {
@@ -383,7 +420,11 @@ export class UploadsService {
   /**
    * Lista imagens de um laudo
    */
-  async getImagensByLaudo(userId: string, laudoId: string, userRole: UserRole): Promise<ImagemLaudo[]> {
+  async getImagensByLaudo(
+    userId: string,
+    laudoId: string,
+    userRole: UserRole,
+  ): Promise<ImagemLaudo[]> {
     const laudo = await this.laudoRepository.findOne({
       where: { id: laudoId },
     });
@@ -465,6 +506,9 @@ export class UploadsService {
     limit: number = 20,
     userRole: UserRole,
   ): Promise<{ data: any[]; total: number; page: number; lastPage: number }> {
+    this.logger.log(
+      `[GET_LAUDO][START] userId=${userId} laudoId=${laudoId} page=${page} limit=${limit}`,
+    );
     const laudo = await this.laudoRepository.findOne({
       where: { id: laudoId },
     });
@@ -478,9 +522,7 @@ export class UploadsService {
     const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
 
     if (!isOwner && !isAdminOrDev) {
-      throw new ForbiddenException(
-        'Você não tem permissão para ver as imagens deste laudo',
-      );
+      throw new ForbiddenException('Você não tem permissão para ver as imagens deste laudo');
     }
 
     const [imagens, total] = await this.imagemLaudoRepository.findAndCount({
@@ -491,31 +533,7 @@ export class UploadsService {
     });
 
     // Gerar URLs pré-assinadas para visualização
-    const data = await Promise.all(
-      imagens.map(async (img) => {
-        const command = new GetObjectCommand({
-          Bucket: this.bucketName,
-          Key: img.s3Key,
-        });
-        const url = await getSignedUrl(this.s3Client, command, {
-          expiresIn: 3600,
-        }); // 1 hora
-        
-        // Retornar apenas os campos necessários para o frontend
-        return {
-          id: img.id,
-          url,
-          ambiente: img.ambiente,
-          ambienteComentario: img.ambienteComentario,
-          tipo: img.tipo,
-          categoria: img.categoria,
-          avariaLocal: img.avariaLocal,
-          dataCaptura: img.dataCaptura,
-          imagemJaFoiAnalisadaPelaIa: img.imagemJaFoiAnalisadaPelaIa,
-          ordem: img.ordem,
-        };
-      }),
-    );
+    const data = await Promise.all(imagens.map((img) => this.buildImagemResponse(img)));
 
     return {
       data,
@@ -535,7 +553,12 @@ export class UploadsService {
     page: number = 1,
     limit: number = 10,
     userRole: UserRole,
-  ): Promise<{ data: { ambiente: string; totalImagens: number; ordem: number }[]; total: number; page: number; lastPage: number }> {
+  ): Promise<{
+    data: { ambiente: string; totalImagens: number; ordem: number }[];
+    total: number;
+    page: number;
+    lastPage: number;
+  }> {
     const laudo = await this.laudoRepository.findOne({
       where: { id: laudoId },
     });
@@ -549,9 +572,7 @@ export class UploadsService {
     const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
 
     if (!isOwner && !isAdminOrDev) {
-      throw new ForbiddenException(
-        'Você não tem permissão para ver os ambientes deste laudo',
-      );
+      throw new ForbiddenException('Você não tem permissão para ver os ambientes deste laudo');
     }
 
     // Query para obter ambientes distintos com contagem
@@ -572,7 +593,7 @@ export class UploadsService {
       .andWhere('img.ambiente IS NOT NULL')
       .andWhere("img.ambiente != ''")
       .getRawOne();
-    
+
     const total = parseInt(totalQuery?.count || '0', 10);
 
     // Adicionar ordenação pelo prefixo numérico e paginação
@@ -612,6 +633,9 @@ export class UploadsService {
     limit: number = 20,
     userRole: UserRole,
   ): Promise<{ data: any[]; total: number; page: number; lastPage: number }> {
+    this.logger.log(
+      `[GET_AMBIENTE][START] userId=${userId} laudoId=${laudoId} ambiente="${ambiente}" page=${page} limit=${limit}`,
+    );
     const laudo = await this.laudoRepository.findOne({
       where: { id: laudoId },
     });
@@ -625,9 +649,7 @@ export class UploadsService {
     const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
 
     if (!isOwner && !isAdminOrDev) {
-      throw new ForbiddenException(
-        'Você não tem permissão para ver as imagens deste laudo',
-      );
+      throw new ForbiddenException('Você não tem permissão para ver as imagens deste laudo');
     }
 
     const [imagens, total] = await this.imagemLaudoRepository.findAndCount({
@@ -636,33 +658,31 @@ export class UploadsService {
       skip: (page - 1) * limit,
       take: limit,
     });
+    this.logger.log(
+      `[GET_AMBIENTE][DB_RESULT] laudoId=${laudoId} ambiente="${ambiente}" total=${total} pageItems=${imagens.length} page=${page} limit=${limit}`,
+    );
+    this.logger.log(
+      `[GET_AMBIENTE][DB_KEYS] ${JSON.stringify(
+        imagens.map((img) => ({
+          id: img.id,
+          s3Key: img.s3Key,
+          ordem: img.ordem,
+          ambiente: img.ambiente,
+        })),
+      )}`,
+    );
 
     // Gerar URLs pré-assinadas para visualização
-    const data = await Promise.all(
-      imagens.map(async (img) => {
-        const command = new GetObjectCommand({
-          Bucket: this.bucketName,
-          Key: img.s3Key,
-        });
-        const url = await getSignedUrl(this.s3Client, command, {
-          expiresIn: 3600,
-        });
-        
-        // Retornar apenas os campos necessários para o frontend
-        return {
+    const data = await Promise.all(imagens.map((img) => this.buildImagemResponse(img)));
+    this.logger.log(
+      `[GET_AMBIENTE][RESPONSE_ITEMS] ${JSON.stringify(
+        data.map((img) => ({
           id: img.id,
-          url,
-          ambiente: img.ambiente,
-          tipoAmbiente: img.tipoAmbiente,
-          ambienteComentario: img.ambienteComentario,
-          tipo: img.tipo,
-          categoria: img.categoria,
-          avariaLocal: img.avariaLocal,
-          dataCaptura: img.dataCaptura,
-          imagemJaFoiAnalisadaPelaIa: img.imagemJaFoiAnalisadaPelaIa,
+          s3Key: img.s3Key,
           ordem: img.ordem,
-        };
-      }),
+          ambiente: img.ambiente,
+        })),
+      )}`,
     );
 
     return {
@@ -677,11 +697,7 @@ export class UploadsService {
    * Deleta uma imagem do S3 e do banco de dados
    * Se a imagem não foi analisada pela IA, devolve o crédito ao usuário
    */
-  async deleteImagem(
-    userId: string,
-    imagemId: string,
-    userRole: UserRole,
-  ): Promise<void> {
+  async deleteImagem(userId: string, imagemId: string, userRole: UserRole): Promise<void> {
     const imagem = await this.imagemLaudoRepository.findOne({
       where: { id: imagemId },
       relations: ['laudo'],
@@ -696,34 +712,30 @@ export class UploadsService {
     const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
 
     if (!isOwner && !isAdminOrDev) {
-      throw new ForbiddenException(
-        'Você não tem permissão para deletar esta imagem',
-      );
+      throw new ForbiddenException('Você não tem permissão para deletar esta imagem');
     }
 
     // Iniciar transação para garantir consistência
-    await this.imagemLaudoRepository.manager.transaction(
-      async (transactionalEntityManager) => {
-        // 1. Verificar se deve devolver crédito
-        if (
-          imagem.imagemJaFoiAnalisadaPelaIa === 'nao' &&
-          ![UserRole.DEV, UserRole.ADMIN].includes(userRole)
-        ) {
-          const usuario = await transactionalEntityManager.findOne(Usuario, {
-            where: { id: imagem.usuarioId },
-            lock: { mode: 'pessimistic_write' },
-          });
+    await this.imagemLaudoRepository.manager.transaction(async (transactionalEntityManager) => {
+      // 1. Verificar se deve devolver crédito
+      if (
+        imagem.imagemJaFoiAnalisadaPelaIa === 'nao' &&
+        ![UserRole.DEV, UserRole.ADMIN].includes(userRole)
+      ) {
+        const usuario = await transactionalEntityManager.findOne(Usuario, {
+          where: { id: imagem.usuarioId },
+          lock: { mode: 'pessimistic_write' },
+        });
 
-          if (usuario) {
-            usuario.quantidadeImagens += 1;
-            await transactionalEntityManager.save(usuario);
-          }
+        if (usuario) {
+          usuario.quantidadeImagens += 1;
+          await transactionalEntityManager.save(usuario);
         }
+      }
 
-        // 2. Deletar do banco
-        await transactionalEntityManager.remove(imagem);
-      },
-    );
+      // 2. Deletar do banco
+      await transactionalEntityManager.remove(imagem);
+    });
 
     // 3. Deletar do S3 (fora da transação do banco)
     try {
@@ -754,7 +766,7 @@ export class UploadsService {
         .andWhere('img.ambiente IS NOT NULL')
         .andWhere("img.ambiente != ''")
         .getRawOne();
-      
+
       const totalAmbientes = parseInt(totalAmbientesQuery?.count || '0', 10);
 
       // Atualizar no Laudo
@@ -762,7 +774,6 @@ export class UploadsService {
         totalFotos,
         totalAmbientes,
       });
-
     } catch (error) {
       console.error('Erro ao atualizar estatísticas do laudo após deleção:', error);
       // Não falhar a request principal, é um efeito colateral
@@ -787,8 +798,8 @@ export class UploadsService {
     const chunkSize = 1000;
     for (let i = 0; i < imagens.length; i += chunkSize) {
       const chunk = imagens.slice(i, i + chunkSize);
-      
-      const objectsToDelete = chunk.map(img => ({ Key: img.s3Key }));
+
+      const objectsToDelete = chunk.map((img) => ({ Key: img.s3Key }));
 
       try {
         const command = new DeleteObjectsCommand({
@@ -833,7 +844,7 @@ export class UploadsService {
 
     imagem.legenda = legenda;
     await this.imagemLaudoRepository.save(imagem);
-    
+
     // Retornar apenas o essencial
     return { id: imagem.id, legenda: imagem.legenda };
   }
@@ -879,11 +890,13 @@ export class UploadsService {
     const tipoAmbienteNormalizado = normalizeForMatch(tipoAmbiente);
     const ambientes = await this.ambienteRepository.find();
     let ambiente = ambientes.find((a) => textMatches(a.nome, tipoAmbiente));
-    
+
     if (!ambiente) {
       ambiente = ambientes.find((a) => {
         const nomeNorm = normalizeForMatch(a.nome);
-        return nomeNorm.includes(tipoAmbienteNormalizado) || tipoAmbienteNormalizado.includes(nomeNorm);
+        return (
+          nomeNorm.includes(tipoAmbienteNormalizado) || tipoAmbienteNormalizado.includes(nomeNorm)
+        );
       });
     }
 
@@ -895,11 +908,12 @@ export class UploadsService {
     const ambientesPai = ambiente.grupoId
       ? await this.ambienteRepository.find({ where: { grupoId: ambiente.grupoId } })
       : [ambiente];
-    const ambienteIds = ambientesPai.map(a => a.id);
+    const ambienteIds = ambientesPai.map((a) => a.id);
 
     // Buscar itens pai
     // Precisamos buscar os pais usando querybuilder para poder tratar os nulos corretamente
-    const query = this.itemAmbienteRepository.createQueryBuilder('item')
+    const query = this.itemAmbienteRepository
+      .createQueryBuilder('item')
       .where('item.ambienteId IN (:...ambienteIds)', { ambienteIds })
       .andWhere('item.ativo = :ativo', { ativo: true })
       .andWhere('item.parentId IS NULL')
@@ -915,7 +929,11 @@ export class UploadsService {
 
     const itemsPaiAtivos = Array.from(itensPorNome.values());
     if (itemsPaiAtivos.length === 0) {
-      return { item: 'Não identificado', success: false, message: 'Sem itens cadastrados no ambiente.' };
+      return {
+        item: 'Não identificado',
+        success: false,
+        message: 'Sem itens cadastrados no ambiente.',
+      };
     }
 
     // Gerar a URL assinada de GET
@@ -940,7 +958,7 @@ ${itemsListString}`;
 
     // Chamar OpenAI
     const aiResult = await this.openaiService.analyzeImage(urlImagem, identifyPrompt);
-    
+
     console.log(`[IA WEB] ← RESPOSTA BRUTA RECEBIDA:`, aiResult.content);
 
     if (!aiResult.success || !aiResult.content) {
@@ -948,10 +966,15 @@ ${itemsListString}`;
     }
 
     // Usar identifyChildItem que já tem a lógica de match para achar o pai correto
-    const identificaçãoPai = this.openaiService.identifyChildItem(aiResult.content, itemsPaiAtivos.map(i => i.nome));
-    
-    console.log(`[IA WEB] ✅ ITEM FINAL PAREADO (Banco de Dados): ${identificaçãoPai || 'Nenhum'}\\n`);
-    
+    const identificaçãoPai = this.openaiService.identifyChildItem(
+      aiResult.content,
+      itemsPaiAtivos.map((i) => i.nome),
+    );
+
+    console.log(
+      `[IA WEB] ✅ ITEM FINAL PAREADO (Banco de Dados): ${identificaçãoPai || 'Nenhum'}\\n`,
+    );
+
     // Decrementar crédito
     if (!ilimitado) {
       await this.usuarioRepository.decrement({ id: userId }, 'quantidadeClassificacoesWeb', 1);
@@ -961,10 +984,10 @@ ${itemsListString}`;
       return { item: 'Não identificado', success: false, message: 'Nenhum item reconhecido.' };
     }
 
-    return { 
-      item: identificaçãoPai, 
-      success: true, 
-      creditosRestantes: ilimitado ? 999 : (usuario.quantidadeClassificacoesWeb - 1) 
+    return {
+      item: identificaçãoPai,
+      success: true,
+      creditosRestantes: ilimitado ? 999 : usuario.quantidadeClassificacoesWeb - 1,
     };
   }
 
@@ -1000,10 +1023,10 @@ ${itemsListString}`;
     // Retornar URL assinada de longa duração (ex: 7 dias) ou permanente se for público
     // Aqui vou retornar uma URL assinada de 24 horas para o usuário baixar
     const getCommand = new GetObjectCommand({
-        Bucket: this.bucketName,
-        Key: s3Key,
+      Bucket: this.bucketName,
+      Key: s3Key,
     });
-    
+
     // 24 horas = 86400 segundos
     return getSignedUrl(this.s3Client, getCommand, { expiresIn: 86400 });
   }
@@ -1014,15 +1037,93 @@ ${itemsListString}`;
   async deleteFile(s3Key: string): Promise<void> {
     console.log(`[UploadsService] 🗑️ Iniciando deleção de arquivo: ${s3Key}`);
     try {
-        const command = new DeleteObjectCommand({
-            Bucket: this.bucketName,
-            Key: s3Key,
-        });
-        await this.s3Client.send(command);
-        console.log(`[UploadsService] ✅ Arquivo deletado com sucesso: ${s3Key}`);
+      const command = new DeleteObjectCommand({
+        Bucket: this.bucketName,
+        Key: s3Key,
+      });
+      await this.s3Client.send(command);
+      console.log(`[UploadsService] ✅ Arquivo deletado com sucesso: ${s3Key}`);
     } catch (error) {
-        console.error(`[UploadsService] ❌ Erro ao deletar arquivo ${s3Key} do S3:`, error);
-        // Não lançar erro para não interromper fluxos que dependem disso apenas para limpeza
+      console.error(`[UploadsService] ❌ Erro ao deletar arquivo ${s3Key} do S3:`, error);
+      // Não lançar erro para não interromper fluxos que dependem disso apenas para limpeza
     }
+  }
+
+  private normalizarOrdem(ordem?: number): number {
+    if (typeof ordem !== 'number' || !Number.isFinite(ordem)) {
+      return 0;
+    }
+    if (ordem <= 0) {
+      return 0;
+    }
+    const inteiro = Math.trunc(ordem);
+    return Math.min(inteiro, UploadsService.MAX_ORDEM_INT);
+  }
+
+  private aplicarMetadadosWeb(
+    imagem: ImagemLaudo,
+    dto: {
+      ambiente: string;
+      tipoAmbiente: string;
+      tipo?: string;
+      categoria?: string;
+      avariaLocal?: string;
+      descricao?: string;
+      ordem?: number;
+      ambienteComentario?: string;
+    },
+  ): void {
+    imagem.ambiente = dto.ambiente;
+    imagem.tipoAmbiente = dto.tipoAmbiente;
+    imagem.tipo = dto.tipo || null;
+    imagem.categoria = dto.categoria || 'VISTORIA';
+    imagem.avariaLocal = dto.avariaLocal || null;
+    imagem.descricao = dto.descricao || null;
+    imagem.ordem = this.normalizarOrdem(dto.ordem);
+    imagem.ambienteComentario = dto.ambienteComentario || null;
+  }
+
+  private async buscarImagemPorS3KeyComRetry(
+    s3Key: string,
+    tentativas: number = 5,
+    intervaloMs: number = 120,
+  ): Promise<ImagemLaudo | null> {
+    for (let tentativa = 1; tentativa <= tentativas; tentativa += 1) {
+      const imagem = await this.imagemLaudoRepository.findOne({
+        where: { s3Key },
+      });
+      if (imagem) {
+        return imagem;
+      }
+      if (tentativa < tentativas) {
+        await new Promise((resolve) => setTimeout(resolve, intervaloMs));
+      }
+    }
+    return null;
+  }
+
+  private async buildImagemResponse(img: ImagemLaudo): Promise<any> {
+    const command = new GetObjectCommand({
+      Bucket: this.bucketName,
+      Key: img.s3Key,
+    });
+    const url = await getSignedUrl(this.s3Client, command, {
+      expiresIn: 3600,
+    });
+
+    return {
+      id: img.id,
+      url,
+      s3Key: img.s3Key,
+      ambiente: img.ambiente,
+      tipoAmbiente: img.tipoAmbiente,
+      ambienteComentario: img.ambienteComentario,
+      tipo: img.tipo,
+      categoria: img.categoria,
+      avariaLocal: img.avariaLocal,
+      dataCaptura: img.dataCaptura,
+      imagemJaFoiAnalisadaPelaIa: img.imagemJaFoiAnalisadaPelaIa,
+      ordem: img.ordem,
+    };
   }
 }

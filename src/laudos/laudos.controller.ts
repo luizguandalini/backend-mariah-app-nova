@@ -26,6 +26,8 @@ import { UpdateLaudoDto } from './dto/update-laudo.dto';
 import { UpdateLaudoDetalhesDto } from './dto/update-laudo-detalhes.dto';
 import { UpdateLaudoEnderecoDto } from './dto/update-laudo-endereco.dto';
 import { DashboardStatsDto } from './dto/dashboard-stats.dto';
+import { AddAmbienteWebDto } from './dto/add-ambiente-web.dto';
+import { ReordenarAmbientesWebDto } from './dto/reordenar-ambientes-web.dto';
 import { Laudo } from './entities/laudo.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -218,7 +220,7 @@ export class LaudosController {
   @ApiParam({ name: 'id', description: 'ID do laudo' })
   async addAmbienteWeb(
     @Param('id') id: string,
-    @Body() body: { nomeAmbiente: string; tipoAmbiente: string },
+    @Body() body: AddAmbienteWebDto,
     @CurrentUser() user: any,
   ) {
     return await this.laudosService.addAmbienteWeb(
@@ -227,6 +229,24 @@ export class LaudosController {
       user.role,
       body.nomeAmbiente,
       body.tipoAmbiente,
+      body.numeroAmbiente,
+      body.estrategiaConflito,
+    );
+  }
+
+  @Patch(':id/ambientes-web/reordenar')
+  @ApiOperation({ summary: 'Reordenar ambientes web do laudo por arrastar e soltar' })
+  @ApiParam({ name: 'id', description: 'ID do laudo' })
+  async reordenarAmbientesWeb(
+    @Param('id') id: string,
+    @Body() body: ReordenarAmbientesWebDto,
+    @CurrentUser() user: any,
+  ) {
+    return await this.laudosService.reordenarAmbientesWeb(
+      id,
+      user.id,
+      user.role,
+      body.nomesAmbientes,
     );
   }
 

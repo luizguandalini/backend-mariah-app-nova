@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   UnauthorizedException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
@@ -19,6 +20,7 @@ import { LaudoOption } from '../laudo-details/entities/laudo-option.entity';
 import { LaudoSection } from '../laudo-details/entities/laudo-section.entity';
 import { ImagemLaudo } from '../uploads/entities/imagem-laudo.entity';
 import { ImagensPdfResponseDto, ImagemPdfDto } from './dto/imagens-pdf-response.dto';
+import { EstrategiaConflitoAmbienteWeb } from './dto/add-ambiente-web.dto';
 
 import { UploadsService } from '../uploads/uploads.service';
 import { RabbitMQService } from '../queue/rabbitmq.service';
@@ -34,6 +36,8 @@ export type LaudoListItem = Partial<Laudo> & {
   usuarioNome?: string;
   usuarioEmail?: string;
 };
+
+type AmbienteWeb = { nomeAmbiente: string; tipoAmbiente: string; ordem: number };
 
 @Injectable()
 export class LaudosService {
@@ -208,14 +212,14 @@ export class LaudosService {
     if (!createLaudoDto.usuarioId) {
       throw new Error('usuarioId não foi fornecido ao criar o laudo.');
     }
-    
-    // TypeORM requer o objeto de relacionamento preenchido para chaves estrangeiras, 
+
+    // TypeORM requer o objeto de relacionamento preenchido para chaves estrangeiras,
     // além da coluna simples, em alguns setups confiltantes de @JoinColumn + @Column.
     const laudo = this.laudoRepository.create({
       ...createLaudoDto,
-      usuario: { id: createLaudoDto.usuarioId }
+      usuario: { id: createLaudoDto.usuarioId },
     });
-    
+
     return await this.laudoRepository.save(laudo);
   }
 
@@ -228,6 +232,8 @@ export class LaudosService {
     userRole: UserRole,
     nomeAmbiente: string,
     tipoAmbiente: string,
+    numeroAmbiente: number,
+    estrategiaConflito: EstrategiaConflitoAmbienteWeb = EstrategiaConflitoAmbienteWeb.ERRO,
   ): Promise<{ nomeAmbiente: string; tipoAmbiente: string; ordem: number }[]> {
     const laudo = await this.findOne(laudoId);
 
@@ -237,27 +243,61 @@ export class LaudosService {
       throw new ForbiddenException('Você não tem permissão para editar este laudo');
     }
 
-    const ambientes = laudo.ambientesWeb || [];
+    const ambientes = this.normalizarOrdensAmbientes(laudo.ambientesWeb || []);
+    const tipoAmbienteLimpo = (tipoAmbiente || '').trim();
+    const nomeAmbienteLimpo = (nomeAmbiente || '').trim();
 
-    // Verificar duplicidade
-    if (ambientes.some(a => a.nomeAmbiente === nomeAmbiente)) {
-      throw new BadRequestException(`Já existe um ambiente chamado "${nomeAmbiente}" neste laudo`);
+    if (!tipoAmbienteLimpo) {
+      throw new BadRequestException('Tipo do ambiente é obrigatório');
     }
 
-    const novoAmbiente = {
-      nomeAmbiente,
-      tipoAmbiente,
-      ordem: ambientes.length,
-    };
+    const ordemDesejada = numeroAmbiente - 1;
+    if (ordemDesejada < 0 || ordemDesejada > ambientes.length) {
+      throw new BadRequestException(
+        `Número do ambiente inválido. Informe um valor entre 1 e ${ambientes.length + 1}.`,
+      );
+    }
 
-    ambientes.push(novoAmbiente);
+    const nomeFinal = `${numeroAmbiente} - ${tipoAmbienteLimpo}`;
+    if (
+      ambientes.some(
+        (a) =>
+          a.nomeAmbiente.trim().toLowerCase() === nomeFinal.trim().toLowerCase() ||
+          a.nomeAmbiente.trim().toLowerCase() === nomeAmbienteLimpo.toLowerCase(),
+      )
+    ) {
+      throw new BadRequestException(`Já existe um ambiente chamado "${nomeFinal}" neste laudo`);
+    }
 
-    await this.laudoRepository.update(laudoId, {
-      ambientesWeb: ambientes,
-      totalAmbientes: ambientes.length,
+    const ambienteConflitante = ambientes.find((a) => a.ordem === ordemDesejada);
+    if (ambienteConflitante && estrategiaConflito !== EstrategiaConflitoAmbienteWeb.DESLOCAR) {
+      throw new ConflictException(
+        `A posição ${numeroAmbiente} já está ocupada por "${ambienteConflitante.nomeAmbiente}". Ajuste o número ou escolha deslocar os ambientes existentes.`,
+      );
+    }
+
+    const ambientesAtualizados = ambientes.map((amb) => {
+      if (amb.ordem >= ordemDesejada) {
+        return { ...amb, ordem: amb.ordem + 1 };
+      }
+      return amb;
     });
 
-    return ambientes;
+    const novoAmbiente = {
+      nomeAmbiente: nomeFinal,
+      tipoAmbiente: tipoAmbienteLimpo,
+      ordem: ordemDesejada,
+    };
+
+    ambientesAtualizados.push(novoAmbiente);
+    const ambientesOrdenados = this.normalizarOrdensAmbientes(ambientesAtualizados);
+
+    await this.laudoRepository.update(laudoId, {
+      ambientesWeb: ambientesOrdenados,
+      totalAmbientes: ambientesOrdenados.length,
+    });
+
+    return ambientesOrdenados;
   }
 
   /**
@@ -277,11 +317,13 @@ export class LaudosService {
       throw new ForbiddenException('Você não tem permissão para editar este laudo');
     }
 
-    let ambientes = laudo.ambientesWeb || [];
-    ambientes = ambientes.filter(a => a.nomeAmbiente !== nomeAmbiente);
+    let ambientes = this.normalizarOrdensAmbientes(laudo.ambientesWeb || []);
+    ambientes = ambientes.filter((a) => a.nomeAmbiente !== nomeAmbiente);
 
     // Recalcular ordens
-    ambientes.forEach((a, i) => { a.ordem = i; });
+    ambientes.forEach((a, i) => {
+      a.ordem = i;
+    });
 
     // Encontrar todas as imagens vinculadas ao ambiente atual no laudo
     const imagensDoAmbiente = await this.imagemRepository.find({
@@ -320,7 +362,12 @@ export class LaudosService {
     userId: string,
     userRole: UserRole,
   ): Promise<{
-    ambientes: { nomeAmbiente: string; tipoAmbiente: string; ordem: number; totalImagens: number }[];
+    ambientes: {
+      nomeAmbiente: string;
+      tipoAmbiente: string;
+      ordem: number;
+      totalImagens: number;
+    }[];
     tipoUso?: string;
     tipoImovel?: string;
   }> {
@@ -332,7 +379,7 @@ export class LaudosService {
       throw new ForbiddenException('Você não tem permissão para ver este laudo');
     }
 
-    const ambientesWeb = laudo.ambientesWeb || [];
+    const ambientesWeb = this.normalizarOrdensAmbientes(laudo.ambientesWeb || []);
 
     // Contar imagens por ambiente
     const imagensByAmbiente = await this.imagemRepository
@@ -346,12 +393,12 @@ export class LaudosService {
       .getRawMany();
 
     const imagensMap = new Map<string, number>();
-    imagensByAmbiente.forEach(row => {
+    imagensByAmbiente.forEach((row) => {
       imagensMap.set(row.ambiente, parseInt(row.totalImagens, 10));
     });
 
     // Combinar: ambientes web com contagem de imagens
-    const resultado = ambientesWeb.map(amb => ({
+    const resultado = ambientesWeb.map((amb) => ({
       ...amb,
       totalImagens: imagensMap.get(amb.nomeAmbiente) || 0,
     }));
@@ -361,6 +408,70 @@ export class LaudosService {
       tipoUso: laudo.tipoUso,
       tipoImovel: laudo.tipoImovel,
     };
+  }
+
+  async reordenarAmbientesWeb(
+    laudoId: string,
+    userId: string,
+    userRole: UserRole,
+    nomesAmbientes: string[],
+  ): Promise<AmbienteWeb[]> {
+    const laudo = await this.findOne(laudoId);
+
+    const isOwner = laudo.usuarioId === userId;
+    const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
+    if (!isOwner && !isAdminOrDev) {
+      throw new ForbiddenException('Você não tem permissão para editar este laudo');
+    }
+
+    const ambientes = this.normalizarOrdensAmbientes(laudo.ambientesWeb || []);
+    if (ambientes.length === 0) {
+      throw new BadRequestException('Não há ambientes para reordenar');
+    }
+
+    if (nomesAmbientes.length !== ambientes.length) {
+      throw new BadRequestException(
+        'A lista de reordenação deve conter todos os ambientes do laudo',
+      );
+    }
+
+    const nomesExistentes = new Set(ambientes.map((a) => a.nomeAmbiente));
+    if (new Set(nomesAmbientes).size !== nomesAmbientes.length) {
+      throw new BadRequestException('A lista de reordenação contém ambientes duplicados');
+    }
+
+    for (const nome of nomesAmbientes) {
+      if (!nomesExistentes.has(nome)) {
+        throw new BadRequestException(`Ambiente "${nome}" não pertence ao laudo`);
+      }
+    }
+
+    const ambienteMap = new Map(ambientes.map((a) => [a.nomeAmbiente, a] as const));
+    const ambientesReordenados = nomesAmbientes.map((nome, index) => {
+      const ambiente = ambienteMap.get(nome);
+      return {
+        nomeAmbiente: ambiente.nomeAmbiente,
+        tipoAmbiente: ambiente.tipoAmbiente,
+        ordem: index,
+      };
+    });
+
+    await this.laudoRepository.update(laudoId, {
+      ambientesWeb: ambientesReordenados,
+      totalAmbientes: ambientesReordenados.length,
+    });
+
+    return ambientesReordenados;
+  }
+
+  private normalizarOrdensAmbientes(ambientes: AmbienteWeb[]): AmbienteWeb[] {
+    return [...(ambientes || [])]
+      .sort((a, b) => a.ordem - b.ordem)
+      .map((ambiente, index) => ({
+        nomeAmbiente: ambiente.nomeAmbiente,
+        tipoAmbiente: ambiente.tipoAmbiente,
+        ordem: index,
+      }));
   }
 
   async findAll(
@@ -728,13 +839,11 @@ export class LaudosService {
     const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(usuario.role);
 
     // Para DEV e ADMIN, mostrar quantidade ilimitada
-    const imagensRestantes = isAdminOrDev
-      ? 999999
-      : usuario.quantidadeImagens;
+    const imagensRestantes = isAdminOrDev ? 999999 : usuario.quantidadeImagens;
 
     const classificacoesWebRestantes = isAdminOrDev
       ? 999999
-      : (usuario.quantidadeClassificacoesWeb || 0);
+      : usuario.quantidadeClassificacoesWeb || 0;
 
     const [totalLaudos, emProcessamento, concluidos] = await Promise.all([
       this.laudoRepository.count({ where: { usuarioId } }),
@@ -815,7 +924,7 @@ export class LaudosService {
       throw new ForbiddenException('Você não tem permissão para visualizar as imagens deste laudo');
     }
 
-    const ambientesNomesValidos = (laudo.ambientesWeb || []).map(a => a.nomeAmbiente);
+    const ambientesNomesValidos = (laudo.ambientesWeb || []).map((a) => a.nomeAmbiente);
 
     // Buscar TODAS as imagens ordenadas por ambiente e ordem
     // mas apenas anexar as que constam ativamente no JSON de ambientes
@@ -827,7 +936,7 @@ export class LaudosService {
       },
     });
 
-    todasImagens = todasImagens.filter(img => ambientesNomesValidos.includes(img.ambiente));
+    todasImagens = todasImagens.filter((img) => ambientesNomesValidos.includes(img.ambiente));
 
     if (todasImagens.length === 0) {
       return {
