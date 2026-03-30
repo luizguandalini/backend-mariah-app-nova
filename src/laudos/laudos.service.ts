@@ -214,10 +214,13 @@ export class LaudosService {
       throw new Error('usuarioId não foi fornecido ao criar o laudo.');
     }
 
+    const incluirAtestado = createLaudoDto.incluirAtestado ?? 1;
+
     // TypeORM requer o objeto de relacionamento preenchido para chaves estrangeiras,
     // além da coluna simples, em alguns setups confiltantes de @JoinColumn + @Column.
     const laudo = this.laudoRepository.create({
       ...createLaudoDto,
+      incluirAtestado,
       usuario: { id: createLaudoDto.usuarioId },
     });
 
