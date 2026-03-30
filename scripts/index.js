@@ -162,6 +162,7 @@ exports.handler = async (event) => {
     // Se o s3_key já existir, atualiza os metadados. Senão, insere novo.
     console.log('[DB] Executando UPSERT atômico (INSERT ... ON CONFLICT DO UPDATE)');
     
+    const metadataFound = !!metadata;
     const upsertResult = await client.query(`
       INSERT INTO imagens_laudo (
         id, laudo_id, usuario_id, s3_key,
@@ -175,16 +176,16 @@ exports.handler = async (event) => {
         'nao', NOW()
       )
       ON CONFLICT (s3_key) DO UPDATE SET
-        ambiente = EXCLUDED.ambiente,
-        ambiente_comentario = EXCLUDED.ambiente_comentario,
-        tipo = EXCLUDED.tipo,
-        categoria = EXCLUDED.categoria,
-        avaria_local = EXCLUDED.avaria_local,
-        descricao = EXCLUDED.descricao,
-        data_captura = EXCLUDED.data_captura,
-        latitude = EXCLUDED.latitude,
-        longitude = EXCLUDED.longitude,
-        ordem = EXCLUDED.ordem
+        ambiente = CASE WHEN $14::boolean THEN EXCLUDED.ambiente ELSE imagens_laudo.ambiente END,
+        ambiente_comentario = CASE WHEN $14::boolean THEN EXCLUDED.ambiente_comentario ELSE imagens_laudo.ambiente_comentario END,
+        tipo = CASE WHEN $14::boolean THEN EXCLUDED.tipo ELSE imagens_laudo.tipo END,
+        categoria = CASE WHEN $14::boolean THEN EXCLUDED.categoria ELSE imagens_laudo.categoria END,
+        avaria_local = CASE WHEN $14::boolean THEN EXCLUDED.avaria_local ELSE imagens_laudo.avaria_local END,
+        descricao = CASE WHEN $14::boolean THEN EXCLUDED.descricao ELSE imagens_laudo.descricao END,
+        data_captura = CASE WHEN $14::boolean THEN EXCLUDED.data_captura ELSE imagens_laudo.data_captura END,
+        latitude = CASE WHEN $14::boolean THEN EXCLUDED.latitude ELSE imagens_laudo.latitude END,
+        longitude = CASE WHEN $14::boolean THEN EXCLUDED.longitude ELSE imagens_laudo.longitude END,
+        ordem = CASE WHEN $14::boolean THEN EXCLUDED.ordem ELSE imagens_laudo.ordem END
     `, [
       laudoId,
       usuarioId,
@@ -198,7 +199,8 @@ exports.handler = async (event) => {
       dataCapturaValue,
       latitudeValue,
       longitudeValue,
-      ordemValue
+      ordemValue,
+      metadataFound
     ]);
     console.log('[DB] UPSERT executado. Rows:', upsertResult.rowCount);
     
