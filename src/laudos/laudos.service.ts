@@ -491,28 +491,88 @@ export class LaudosService {
     }
 
     const ambientesWeb = this.normalizarOrdensAmbientes(laudo.ambientesWeb || []);
-
-    // Contar imagens por ambiente
-    const imagensByAmbiente = await this.imagemRepository
-      .createQueryBuilder('img')
-      .select('img.ambiente', 'ambiente')
-      .addSelect('COUNT(*)', 'totalImagens')
-      .where('img.laudo_id = :laudoId', { laudoId })
-      .andWhere('img.ambiente IS NOT NULL')
-      .andWhere("img.ambiente != ''")
-      .groupBy('img.ambiente')
-      .getRawMany();
-
-    const imagensMap = new Map<string, number>();
-    imagensByAmbiente.forEach((row) => {
-      imagensMap.set(row.ambiente, parseInt(row.totalImagens, 10));
+    const imagens = await this.imagemRepository.find({
+      where: { laudoId },
+      select: ['ambiente', 'tipoAmbiente', 'ordem', 'createdAt'],
+      order: { ordem: 'ASC', createdAt: 'ASC' },
     });
 
-    // Combinar: ambientes web com contagem de imagens
-    const resultado = ambientesWeb.map((amb) => ({
-      ...amb,
-      totalImagens: imagensMap.get(amb.nomeAmbiente) || 0,
-    }));
+    const imagensMap = new Map<
+      string,
+      { totalImagens: number; tipoAmbiente: string; ordemReferencia: number }
+    >();
+
+    imagens.forEach((img, index) => {
+      const nomeAmbiente = (img.ambiente || '').trim();
+      if (!nomeAmbiente) {
+        return;
+      }
+
+      const existente = imagensMap.get(nomeAmbiente);
+      const tipoAmbiente =
+        (img.tipoAmbiente || '').trim() || this.removerPrefixoNumericoAmbiente(nomeAmbiente);
+
+      if (!existente) {
+        imagensMap.set(nomeAmbiente, {
+          totalImagens: 1,
+          tipoAmbiente,
+          ordemReferencia: typeof img.ordem === 'number' ? img.ordem : index,
+        });
+        return;
+      }
+
+      existente.totalImagens += 1;
+      if (!existente.tipoAmbiente && tipoAmbiente) {
+        existente.tipoAmbiente = tipoAmbiente;
+      }
+      const ordemAtual = typeof img.ordem === 'number' ? img.ordem : index;
+      if (ordemAtual < existente.ordemReferencia) {
+        existente.ordemReferencia = ordemAtual;
+      }
+    });
+
+    let resultado: {
+      nomeAmbiente: string;
+      tipoAmbiente: string;
+      ordem: number;
+      totalImagens: number;
+    }[] = [];
+
+    if (ambientesWeb.length > 0) {
+      resultado = ambientesWeb.map((amb) => {
+        const dadosImagens = imagensMap.get(amb.nomeAmbiente);
+        return {
+          ...amb,
+          tipoAmbiente:
+            (amb.tipoAmbiente || '').trim() ||
+            dadosImagens?.tipoAmbiente ||
+            this.removerPrefixoNumericoAmbiente(amb.nomeAmbiente),
+          totalImagens: dadosImagens?.totalImagens || 0,
+        };
+      });
+
+      const nomesRegistrados = new Set(resultado.map((amb) => amb.nomeAmbiente));
+      const ambientesFaltantes = Array.from(imagensMap.entries())
+        .filter(([nomeAmbiente]) => !nomesRegistrados.has(nomeAmbiente))
+        .sort(([, a], [, b]) => a.ordemReferencia - b.ordemReferencia)
+        .map(([nomeAmbiente, info], index) => ({
+          nomeAmbiente,
+          tipoAmbiente: info.tipoAmbiente || this.removerPrefixoNumericoAmbiente(nomeAmbiente),
+          ordem: resultado.length + index,
+          totalImagens: info.totalImagens,
+        }));
+
+      resultado = [...resultado, ...ambientesFaltantes];
+    } else {
+      resultado = Array.from(imagensMap.entries())
+        .sort(([, a], [, b]) => a.ordemReferencia - b.ordemReferencia)
+        .map(([nomeAmbiente, info], index) => ({
+          nomeAmbiente,
+          tipoAmbiente: info.tipoAmbiente || this.removerPrefixoNumericoAmbiente(nomeAmbiente),
+          ordem: index,
+          totalImagens: info.totalImagens,
+        }));
+    }
 
     return {
       ambientes: resultado,
@@ -1047,7 +1107,9 @@ export class LaudosService {
       },
     });
 
-    todasImagens = todasImagens.filter((img) => ambientesNomesValidos.includes(img.ambiente));
+    if (ambientesNomesValidos.length > 0) {
+      todasImagens = todasImagens.filter((img) => ambientesNomesValidos.includes(img.ambiente));
+    }
 
     if (todasImagens.length === 0) {
       return {
@@ -1134,5 +1196,14 @@ export class LaudosService {
         imagesPerPage: limit,
       },
     };
+  }
+
+  private removerPrefixoNumericoAmbiente(nomeAmbiente: string): string {
+    const normalizado = (nomeAmbiente || '').trim();
+    if (!normalizado) {
+      return 'Ambiente';
+    }
+
+    return normalizado.replace(/^\d+\s*-\s*/, '').trim() || normalizado;
   }
 }
