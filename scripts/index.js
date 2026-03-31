@@ -66,7 +66,7 @@ function extractMetadata(buffer) {
     
     // Regex melhorado: captura JSON completo com "ambiente", "ambiente_comentario", "data_captura" e "ordem"
     // Formato novo: {"ambiente":"...","ambiente_comentario":"...","tipo":"...",...}
-    const jsonPatternNew = /\{"ambiente":"[^"]+","ambiente_comentario":"[^"]*","tipo":"[^"]+","categoria":"[^"]+","avaria_local":"[^"]*","descricao":"[^"]+","data_captura":"[^"]+"(?:,"latitude":[^,}]+)?(?:,"longitude":[^,}]+)?(?:,"ordem":\d+)?\}/;
+    const jsonPatternNew = /\{"ambiente":"[^"]+"(?:,"tipo_ambiente":(?:null|"[^"]*"))?,"ambiente_comentario":"[^"]*","tipo":"[^"]+","categoria":"[^"]+","avaria_local":"[^"]*","descricao":"[^"]+","data_captura":"[^"]+"(?:,"latitude":[^,}]+)?(?:,"longitude":[^,}]+)?(?:,"ordem":\d+)?\}/;
     const matchNew = bufferStr.match(jsonPatternNew);
     
     if (matchNew) {
@@ -149,6 +149,7 @@ exports.handler = async (event) => {
     // REGRA DE NEGÓCIO: NENHUM campo pode ser NULL (exceto GPS)
     const ambienteValue = metadata?.ambiente || 'Desconhecido';
     const ambienteComentarioValue = metadata?.ambiente_comentario ?? '';  // String vazia, não null
+    const tipoAmbienteValue = metadata?.tipo_ambiente || null;
     const tipoValue = metadata?.tipo || 'Desconhecido';
     const categoriaValue = metadata?.categoria || 'PADRAO';
     const avariaLocalValue = metadata?.avaria_local ?? '';  // String vazia, não null
@@ -166,31 +167,33 @@ exports.handler = async (event) => {
     const upsertResult = await client.query(`
       INSERT INTO imagens_laudo (
         id, laudo_id, usuario_id, s3_key,
-        ambiente, ambiente_comentario, tipo, categoria, avaria_local, descricao, data_captura,
+        ambiente, tipo_ambiente, ambiente_comentario, tipo, categoria, avaria_local, descricao, data_captura,
         latitude, longitude, ordem,
         imagem_ja_foi_analisada_pela_ia, created_at
       ) VALUES (
         gen_random_uuid(), $1, $2, $3,
-        $4, $5, $6, $7, $8, $9, $10,
-        $11, $12, $13,
+        $4, $5, $6, $7, $8, $9, $10, $11,
+        $12, $13, $14,
         'nao', NOW()
       )
       ON CONFLICT (s3_key) DO UPDATE SET
-        ambiente = CASE WHEN $14::boolean THEN EXCLUDED.ambiente ELSE imagens_laudo.ambiente END,
-        ambiente_comentario = CASE WHEN $14::boolean THEN EXCLUDED.ambiente_comentario ELSE imagens_laudo.ambiente_comentario END,
-        tipo = CASE WHEN $14::boolean THEN EXCLUDED.tipo ELSE imagens_laudo.tipo END,
-        categoria = CASE WHEN $14::boolean THEN EXCLUDED.categoria ELSE imagens_laudo.categoria END,
-        avaria_local = CASE WHEN $14::boolean THEN EXCLUDED.avaria_local ELSE imagens_laudo.avaria_local END,
-        descricao = CASE WHEN $14::boolean THEN EXCLUDED.descricao ELSE imagens_laudo.descricao END,
-        data_captura = CASE WHEN $14::boolean THEN EXCLUDED.data_captura ELSE imagens_laudo.data_captura END,
-        latitude = CASE WHEN $14::boolean THEN EXCLUDED.latitude ELSE imagens_laudo.latitude END,
-        longitude = CASE WHEN $14::boolean THEN EXCLUDED.longitude ELSE imagens_laudo.longitude END,
-        ordem = CASE WHEN $14::boolean THEN EXCLUDED.ordem ELSE imagens_laudo.ordem END
+        ambiente = CASE WHEN $15::boolean THEN EXCLUDED.ambiente ELSE imagens_laudo.ambiente END,
+        tipo_ambiente = CASE WHEN $15::boolean THEN EXCLUDED.tipo_ambiente ELSE imagens_laudo.tipo_ambiente END,
+        ambiente_comentario = CASE WHEN $15::boolean THEN EXCLUDED.ambiente_comentario ELSE imagens_laudo.ambiente_comentario END,
+        tipo = CASE WHEN $15::boolean THEN EXCLUDED.tipo ELSE imagens_laudo.tipo END,
+        categoria = CASE WHEN $15::boolean THEN EXCLUDED.categoria ELSE imagens_laudo.categoria END,
+        avaria_local = CASE WHEN $15::boolean THEN EXCLUDED.avaria_local ELSE imagens_laudo.avaria_local END,
+        descricao = CASE WHEN $15::boolean THEN EXCLUDED.descricao ELSE imagens_laudo.descricao END,
+        data_captura = CASE WHEN $15::boolean THEN EXCLUDED.data_captura ELSE imagens_laudo.data_captura END,
+        latitude = CASE WHEN $15::boolean THEN EXCLUDED.latitude ELSE imagens_laudo.latitude END,
+        longitude = CASE WHEN $15::boolean THEN EXCLUDED.longitude ELSE imagens_laudo.longitude END,
+        ordem = CASE WHEN $15::boolean THEN EXCLUDED.ordem ELSE imagens_laudo.ordem END
     `, [
       laudoId,
       usuarioId,
       key,
       ambienteValue,
+      tipoAmbienteValue,
       ambienteComentarioValue,
       tipoValue,
       categoriaValue,

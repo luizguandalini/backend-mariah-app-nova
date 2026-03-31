@@ -727,7 +727,7 @@ export class QueueService implements OnModuleInit {
     const defaultPrompt = await this.systemConfigService.getDefaultPrompt();
 
     // Buscar prompt baseado no tipo e tipo_ambiente
-    const tipoAmbiente = imagem.tipoAmbiente;
+    const tipoAmbiente = (imagem.tipoAmbiente || '').trim() || this.resolveTipoAmbiente(imagem.ambiente);
     const tipoItem = imagem.tipo;
 
     if (!tipoAmbiente || !tipoItem) {
@@ -1122,6 +1122,14 @@ export class QueueService implements OnModuleInit {
 
     const marcadores = new Set(['comdetalheapontado', 'detalheapontado']);
     return marcadores.has(avariaLocalNormalizada);
+  }
+
+  private resolveTipoAmbiente(ambiente?: string | null): string | null {
+    if (!ambiente) {
+      return null;
+    }
+    const semPrefixoNumerico = ambiente.replace(/^\s*\d+\s*-\s*/, '').trim();
+    return semPrefixoNumerico || null;
   }
 
   /**
