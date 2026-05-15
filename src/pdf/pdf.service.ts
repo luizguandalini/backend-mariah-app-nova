@@ -296,9 +296,13 @@ export class PdfService {
     await page.setDefaultNavigationTimeout(60000);
 
     await page.setContent(html, {
-      waitUntil: 'networkidle0',
+      waitUntil: 'domcontentloaded',
       timeout: 60000,
     });
+    await page.waitForFunction(
+      () => Array.from(document.images).every((img) => img.complete),
+      { timeout: 60000 },
+    );
 
     await page.emulateMediaType('print');
     await page.evaluate(() => document.fonts.ready);
