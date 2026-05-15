@@ -1,4 +1,4 @@
-import { IsInt, Min, Max, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsIn, IsInt, Min, Max, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class UpdateConfiguracoesPdfDto {
   @IsOptional()
@@ -18,6 +18,11 @@ export class UpdateConfiguracoesPdfDto {
   @Min(0)
   @Max(100)
   margemPagina?: number;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['detalhado', 'compacto'])
+  modoPreviewPdf?: 'detalhado' | 'compacto';
 
   @IsOptional()
   @IsString()

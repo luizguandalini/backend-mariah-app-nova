@@ -29,6 +29,9 @@ export class ConfiguracaoPdfUsuario {
   @Column({ name: 'margem_pagina', type: 'integer', default: 20 })
   margemPagina: number;
 
+  @Column({ name: 'modo_preview_pdf', type: 'varchar', length: 20, default: 'detalhado' })
+  modoPreviewPdf: 'detalhado' | 'compacto';
+
   @Column({ name: 'metodologia_texto', type: 'text', nullable: true })
   metodologiaTexto: string | null;
 

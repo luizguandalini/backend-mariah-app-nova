@@ -269,6 +269,7 @@ export class UsersService {
         espacamentoHorizontal: 10,
         espacamentoVertical: 15,
         margemPagina: 20,
+        modoPreviewPdf: 'detalhado',
       });
       await this.configuracaoPdfRepository.save(config);
     }
