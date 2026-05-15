@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { SystemConfig } from './entities/system-config.entity';
+import { UserRole } from '../users/enums/user-role.enum';
 
 export interface TipoImovelOpcao {
   id: string;
@@ -21,6 +22,7 @@ const TIPOS_IMOVEL_KEY = 'tipos_imovel_por_uso';
 const TIPOS_USO_VALIDOS = ['Residencial', 'Comercial', 'Industrial'];
 const DEFAULT_PROMPT_KEY = 'default_prompt';
 const AVARIA_PROMPT_KEY = 'avaria_prompt';
+const FILENAME_CAPTION_ALLOWED_ROLES_KEY = 'filename_caption_allowed_roles';
 
 @Injectable()
 export class SystemConfigService implements OnModuleInit {
@@ -38,6 +40,7 @@ export class SystemConfigService implements OnModuleInit {
   async onModuleInit() {
     await this.ensureDefaultPromptExists();
     await this.ensureAvariaPromptExists();
+    await this.ensureFilenameCaptionRolesExists();
     await this.ensureTiposImovelExists();
   }
 
@@ -74,6 +77,22 @@ export class SystemConfigService implements OnModuleInit {
           'Prompt específico para fotos de avaria. É concatenado ao prompt padrão na análise de imagens de avaria. Máximo 1000 caracteres.',
       });
       this.logger.log('✅ Configuração avaria_prompt criada automaticamente');
+    }
+  }
+
+  private async ensureFilenameCaptionRolesExists(): Promise<void> {
+    const existing = await this.configRepository.findOne({
+      where: { key: FILENAME_CAPTION_ALLOWED_ROLES_KEY },
+    });
+
+    if (!existing) {
+      await this.configRepository.save({
+        key: FILENAME_CAPTION_ALLOWED_ROLES_KEY,
+        value: JSON.stringify(['DEV', 'ADMIN']),
+        description:
+          'Roles autorizadas a usar o nome do arquivo como legenda no upload web de imagens.',
+      });
+      this.logger.log('Configuração filename_caption_allowed_roles criada automaticamente');
     }
   }
 
@@ -165,6 +184,55 @@ export class SystemConfigService implements OnModuleInit {
     );
 
     this.logger.log(`Prompt de avaria atualizado (${trimmedValue.length} caracteres)`);
+  }
+
+  async getFilenameCaptionAllowedRoles(): Promise<string[]> {
+    const config = await this.configRepository.findOne({
+      where: { key: FILENAME_CAPTION_ALLOWED_ROLES_KEY },
+    });
+
+    if (!config?.value) {
+      return ['DEV', 'ADMIN'];
+    }
+
+    try {
+      const roles = JSON.parse(config.value);
+      if (!Array.isArray(roles)) {
+        return ['DEV', 'ADMIN'];
+      }
+      return roles.filter((role) => Object.values(UserRole).includes(role as UserRole));
+    } catch {
+      return ['DEV', 'ADMIN'];
+    }
+  }
+
+  async setFilenameCaptionAllowedRoles(roles: UserRole[], userId: string): Promise<string[]> {
+    const uniqueRoles = Array.from(new Set(roles)).filter((role) =>
+      Object.values(UserRole).includes(role),
+    );
+
+    await this.configRepository.upsert(
+      {
+        key: FILENAME_CAPTION_ALLOWED_ROLES_KEY,
+        value: JSON.stringify(uniqueRoles),
+        updatedById: userId,
+        description:
+          'Roles autorizadas a usar o nome do arquivo como legenda no upload web de imagens.',
+      },
+      ['key'],
+    );
+
+    this.logger.log(`Roles de legenda por nome do arquivo atualizadas: ${uniqueRoles.join(', ')}`);
+    return uniqueRoles;
+  }
+
+  async canUseFilenameAsCaption(role?: UserRole | string): Promise<boolean> {
+    if (!role) {
+      return false;
+    }
+
+    const allowedRoles = await this.getFilenameCaptionAllowedRoles();
+    return allowedRoles.includes(role);
   }
 
   private validarTipoUso(tipoUso: string): string {

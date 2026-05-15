@@ -257,7 +257,10 @@ export class UploadsService {
       ambienteComentario?: string;
       uploadSessionId?: string;
       clientFileId?: string;
+      originalFilename?: string;
+      usarNomeArquivoComoLegenda?: boolean;
     },
+    userRole?: UserRole,
   ): Promise<any> {
     this.logger.log(
       `[CONFIRM_WEB][START] session=${dto.uploadSessionId || '-'} fileId=${dto.clientFileId || '-'} userId=${userId} laudoId=${dto.laudoId} ambiente="${dto.ambiente}" tipoAmbiente="${dto.tipoAmbiente}" ordem=${dto.ordem ?? 0} s3Key="${dto.s3Key}"`,
@@ -299,12 +302,13 @@ export class UploadsService {
     const existingImage = await this.imagemLaudoRepository.findOne({
       where: { s3Key: dto.s3Key },
     });
+    const legendaPorNomeArquivo = await this.resolveLegendaPorNomeArquivo(dto, userRole);
 
     if (existingImage) {
       this.logger.log(
         `[CONFIRM_WEB][UPDATE_EXISTING] session=${dto.uploadSessionId || '-'} fileId=${dto.clientFileId || '-'} imageId=${existingImage.id} s3Key="${dto.s3Key}"`,
       );
-      this.aplicarMetadadosWeb(existingImage, dto);
+      this.aplicarMetadadosWeb(existingImage, dto, legendaPorNomeArquivo);
       const imagemAtualizada = await this.imagemLaudoRepository.save(existingImage);
       this.logger.log(
         `[CONFIRM_WEB][DONE_UPDATE] session=${dto.uploadSessionId || '-'} fileId=${dto.clientFileId || '-'} imageId=${imagemAtualizada.id} ambiente="${imagemAtualizada.ambiente}" ordem=${imagemAtualizada.ordem} s3Key="${imagemAtualizada.s3Key}"`,
@@ -324,9 +328,10 @@ export class UploadsService {
         categoria: dto.categoria || 'VISTORIA',
         avariaLocal: dto.avariaLocal || null,
         descricao: dto.descricao || null,
+        legenda: legendaPorNomeArquivo || 'sem legenda',
         ordem: this.normalizarOrdem(dto.ordem),
         ambienteComentario: dto.ambienteComentario || null,
-        imagemJaFoiAnalisadaPelaIa: 'nao',
+        imagemJaFoiAnalisadaPelaIa: legendaPorNomeArquivo ? 'sim' : 'nao',
       });
       const imagemSalva = await this.imagemLaudoRepository.save(imagem);
       this.logger.log(
@@ -348,7 +353,7 @@ export class UploadsService {
             `Imagem com s3Key ${dto.s3Key} não encontrada após conflito de chave única`,
           );
         }
-        this.aplicarMetadadosWeb(imagemExistente, dto);
+        this.aplicarMetadadosWeb(imagemExistente, dto, legendaPorNomeArquivo);
         const imagemAtualizada = await this.imagemLaudoRepository.save(imagemExistente);
         this.logger.log(
           `[CONFIRM_WEB][DONE_DUPLICATE_UPDATE] session=${dto.uploadSessionId || '-'} fileId=${dto.clientFileId || '-'} imageId=${imagemAtualizada.id} ambiente="${imagemAtualizada.ambiente}" ordem=${imagemAtualizada.ordem} s3Key="${imagemAtualizada.s3Key}"`,
@@ -1126,6 +1131,7 @@ ${itemsListString}`;
       ordem?: number;
       ambienteComentario?: string;
     },
+    legendaPorNomeArquivo?: string | null,
   ): void {
     imagem.ambiente = dto.ambiente;
     imagem.tipoAmbiente = dto.tipoAmbiente;
@@ -1135,6 +1141,43 @@ ${itemsListString}`;
     imagem.descricao = dto.descricao || null;
     imagem.ordem = this.normalizarOrdem(dto.ordem);
     imagem.ambienteComentario = dto.ambienteComentario || null;
+    if (legendaPorNomeArquivo) {
+      imagem.legenda = legendaPorNomeArquivo;
+      imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
+    }
+  }
+
+  private async resolveLegendaPorNomeArquivo(
+    dto: {
+      originalFilename?: string;
+      usarNomeArquivoComoLegenda?: boolean;
+    },
+    userRole?: UserRole,
+  ): Promise<string | null> {
+    if (!dto.usarNomeArquivoComoLegenda || !dto.originalFilename) {
+      return null;
+    }
+
+    const allowed = await this.systemConfigService.canUseFilenameAsCaption(userRole);
+    if (!allowed) {
+      return null;
+    }
+
+    const filename = dto.originalFilename
+      .split(/[\\/]/)
+      .pop()
+      ?.replace(/[\u0000-\u001F\u007F]/g, '')
+      .trim();
+
+    if (!filename) {
+      return null;
+    }
+
+    const lastDotIndex = filename.lastIndexOf('.');
+    const filenameSemExtensao =
+      lastDotIndex > 0 ? filename.substring(0, lastDotIndex).trim() : filename;
+
+    return filenameSemExtensao ? filenameSemExtensao.substring(0, 200) : null;
   }
 
   private async buscarImagemPorS3KeyComRetry(
@@ -1175,6 +1218,8 @@ ${itemsListString}`;
       tipo: img.tipo,
       categoria: img.categoria,
       avariaLocal: img.avariaLocal,
+      descricao: img.descricao,
+      legenda: img.legenda,
       dataCaptura: img.dataCaptura,
       imagemJaFoiAnalisadaPelaIa: img.imagemJaFoiAnalisadaPelaIa,
       ordem: img.ordem,

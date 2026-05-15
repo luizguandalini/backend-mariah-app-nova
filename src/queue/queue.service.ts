@@ -208,10 +208,11 @@ export class QueueService implements OnModuleInit {
     });
 
     if (totalImages === 0) {
-      // Auto-correção: Se não tem imagens pendentes -> marca como concluído
-      // (Só lança erro se NÃO for force, pois se for force acabamos de resetar, então deveria ter imagens)
-      // Se mesmo com force deu 0, é porque laudo não tem imagens.
       await this.laudoRepository.update(laudoId, { status: StatusLaudo.CONCLUIDO });
+      const imagensDoLaudo = await this.imagemRepository.count({ where: { laudoId } });
+      if (imagensDoLaudo > 0) {
+        throw new BadRequestException('Laudo já possui todas as imagens analisadas');
+      }
       throw new BadRequestException('Laudo não possui imagens para analisar');
     }
 

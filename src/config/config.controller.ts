@@ -14,6 +14,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SystemConfigService } from './config.service';
 import { UpdateDefaultPromptDto } from './dto/update-default-prompt.dto';
 import { UpdateAvariaPromptDto } from './dto/update-avaria-prompt.dto';
+import { UpdateFilenameCaptionRolesDto } from './dto/update-filename-caption-roles.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -82,6 +83,39 @@ export class SystemConfigController {
       success: true,
       message: 'Prompt de avaria atualizado com sucesso',
     };
+  }
+
+  @Get('filename-caption')
+  @ApiOperation({
+    summary: 'Obter permissões de legenda pelo nome do arquivo',
+    description:
+      'Retorna as roles autorizadas e se o usuário logado pode usar o nome do arquivo como legenda no upload web.',
+  })
+  async getFilenameCaptionConfig(@Request() req: any): Promise<{
+    allowedRoles: string[];
+    enabledForCurrentUser: boolean;
+  }> {
+    const allowedRoles = await this.configService.getFilenameCaptionAllowedRoles();
+    return {
+      allowedRoles,
+      enabledForCurrentUser: await this.configService.canUseFilenameAsCaption(req.user.role),
+    };
+  }
+
+  @Put('filename-caption')
+  @Roles(UserRole.DEV, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Atualizar roles autorizadas para legenda pelo nome do arquivo',
+  })
+  async setFilenameCaptionConfig(
+    @Body() dto: UpdateFilenameCaptionRolesDto,
+    @Request() req: any,
+  ): Promise<{ success: boolean; allowedRoles: string[] }> {
+    const allowedRoles = await this.configService.setFilenameCaptionAllowedRoles(
+      dto.roles,
+      req.user.id,
+    );
+    return { success: true, allowedRoles };
   }
 
   @Get('tipos-imovel')

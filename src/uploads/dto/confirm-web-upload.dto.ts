@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsInt, Min, Max, IsEnum } from 'class-validator';
+import { IsString, IsOptional, IsInt, Min, Max, IsBoolean } from 'class-validator';
 
 export class ConfirmWebUploadDto {
   @IsString()
@@ -46,4 +46,12 @@ export class ConfirmWebUploadDto {
   @IsOptional()
   @IsString()
   clientFileId?: string;
+
+  @IsOptional()
+  @IsString()
+  originalFilename?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  usarNomeArquivoComoLegenda?: boolean;
 }

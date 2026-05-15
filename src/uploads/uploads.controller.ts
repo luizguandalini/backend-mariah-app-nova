@@ -62,7 +62,7 @@ export class UploadsController {
     @Request() req,
     @Body() dto: ConfirmWebUploadDto,
   ) {
-    const imagem = await this.uploadsService.confirmWebUpload(req.user.id, dto);
+    const imagem = await this.uploadsService.confirmWebUpload(req.user.id, dto, req.user.role);
     return { success: true, imagem };
   }
 
