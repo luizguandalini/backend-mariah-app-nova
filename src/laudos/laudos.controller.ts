@@ -30,6 +30,7 @@ import { AddAmbienteWebDto } from './dto/add-ambiente-web.dto';
 import { ReordenarAmbientesWebDto } from './dto/reordenar-ambientes-web.dto';
 import { RenameAmbienteWebDto } from './dto/rename-ambiente-web.dto';
 import { RequestPdfGenerationDto } from './dto/request-pdf-generation.dto';
+import { UpdateFilenameCaptionPreferenceDto } from './dto/update-filename-caption-preference.dto';
 import { Laudo } from './entities/laudo.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -206,6 +207,23 @@ export class LaudosController {
       user.id,
       user.role,
       body?.modoPreviewPdf,
+    );
+  }
+
+  @Patch(':id/filename-caption-preference')
+  @ApiOperation({ summary: 'Atualizar preferência de legenda pelo nome do arquivo no laudo' })
+  @ApiParam({ name: 'id', description: 'ID do laudo' })
+  @ApiResponse({ status: 200, description: 'Preferência atualizada com sucesso' })
+  async updateFilenameCaptionPreference(
+    @Param('id') id: string,
+    @Body() body: UpdateFilenameCaptionPreferenceDto,
+    @CurrentUser() user: any,
+  ) {
+    return await this.laudosService.updateFilenameCaptionPreference(
+      id,
+      user.id,
+      user.role,
+      body.usarNomeArquivoComoLegenda,
     );
   }
 

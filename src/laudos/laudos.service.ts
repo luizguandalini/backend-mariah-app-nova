@@ -486,6 +486,7 @@ export class LaudosService {
     }[];
     tipoUso?: string;
     tipoImovel?: string;
+    usarNomeArquivoComoLegenda: boolean;
   }> {
     const laudo = await this.findOne(laudoId);
 
@@ -583,6 +584,29 @@ export class LaudosService {
       ambientes: resultado,
       tipoUso: laudo.tipoUso,
       tipoImovel: laudo.tipoImovel,
+      usarNomeArquivoComoLegenda: !!laudo.usarNomeArquivoComoLegenda,
+    };
+  }
+
+  async updateFilenameCaptionPreference(
+    laudoId: string,
+    userId: string,
+    userRole: UserRole,
+    usarNomeArquivoComoLegenda: boolean,
+  ): Promise<{ usarNomeArquivoComoLegenda: boolean }> {
+    const laudo = await this.findOne(laudoId);
+
+    const isOwner = laudo.usuarioId === userId;
+    const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
+    if (!isOwner && !isAdminOrDev) {
+      throw new ForbiddenException('Você não tem permissão para editar este laudo');
+    }
+
+    laudo.usarNomeArquivoComoLegenda = usarNomeArquivoComoLegenda;
+    await this.laudoRepository.save(laudo);
+
+    return {
+      usarNomeArquivoComoLegenda: laudo.usarNomeArquivoComoLegenda,
     };
   }
 
