@@ -5,6 +5,7 @@ export interface QueueMessage {
   laudoId: string;
   usuarioId: string;
   priority?: number;
+  modoPreviewPdf?: 'detalhado' | 'compacto';
 }
 
 @Injectable()
@@ -12,6 +13,8 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RabbitMQService.name);
   private connection: amqp.ChannelModel | null = null;
   private channel: amqp.Channel | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private isConnecting = false;
   
   // Callbacks para notificar quando conectar
   private onConnectCallbacks: Array<() => void> = [];
@@ -41,9 +44,20 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
    * Conecta ao RabbitMQ
    */
   async connect(): Promise<boolean> {
+    if (this.isConnecting) {
+      return false;
+    }
+
+    this.isConnecting = true;
+
     try {
       this.connection = await amqp.connect(this.RABBITMQ_URL);
       this.channel = await this.connection.createChannel();
+
+      if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+      }
 
       // === SETUP FILA DE ANÁLISE ===
       await this.channel.assertExchange(this.ANALYSIS_EXCHANGE_NAME, 'direct', {
@@ -90,14 +104,21 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
 
       this.connection.on('close', () => {
         this.logger.warn('RabbitMQ connection closed, tentando reconectar...');
-        setTimeout(() => this.connect(), 5000);
+        this.connection = null;
+        this.channel = null;
+        this.scheduleReconnect();
       });
 
       return true;
     } catch (error) {
       this.logger.error(`❌ Falha ao conectar ao RabbitMQ: ${error.message}`);
-      this.logger.warn('RabbitMQ não disponível - usando fallback para fila local');
+      this.logger.warn('RabbitMQ não disponível - nova tentativa em 5 segundos');
+      this.connection = null;
+      this.channel = null;
+      this.scheduleReconnect();
       return false;
+    } finally {
+      this.isConnecting = false;
     }
   }
 
@@ -106,6 +127,10 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
    */
   async disconnect(): Promise<void> {
     try {
+      if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+      }
       if (this.channel) {
         await this.channel.close();
       }
@@ -116,6 +141,15 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logger.error('Erro ao desconectar do RabbitMQ:', error);
     }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer) return;
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, 5000);
   }
 
   /**

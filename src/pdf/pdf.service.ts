@@ -42,6 +42,7 @@ type PdfConfig = {
   margemPagina: number;
   espacamentoHorizontal: number;
   espacamentoVertical: number;
+  modoPreviewPdf?: 'detalhado' | 'compacto';
   metodologiaTexto?: string | null;
   termosGeraisTexto?: string | null;
   assinaturaTexto?: string | null;
@@ -68,7 +69,11 @@ export class PdfService {
   /**
    * Ponto de entrada para geração do PDF
    */
-  async generateInternal(laudoId: string, userId: string): Promise<string> {
+  async generateInternal(
+    laudoId: string,
+    userId: string,
+    modoPreviewPdf?: 'detalhado' | 'compacto',
+  ): Promise<string> {
     this.updateStatus(laudoId, 'PROCESSING', 0);
 
     try {
@@ -116,6 +121,8 @@ export class PdfService {
 
       // 5. Buscar Configurações do Usuário
       const config = await this.usersService.getConfiguracoesPdf(userId);
+      const modoPdf = modoPreviewPdf || config.modoPreviewPdf || 'detalhado';
+      config.modoPreviewPdf = modoPdf;
 
       // --- Processamento ---
 
@@ -181,6 +188,7 @@ export class PdfService {
         pdfStatus: 'COMPLETED',
         pdfProgress: 100,
         pdfUrl: publicUrl,
+        pdfModoPreview: modoPdf,
       });
 
       this.queueGateway.notifyPdfProgress(laudoId, {
@@ -188,6 +196,7 @@ export class PdfService {
         status: 'COMPLETED',
         progress: 100,
         url: publicUrl,
+        modoPreviewPdf: modoPdf,
       });
 
       return publicUrl;
@@ -329,7 +338,7 @@ export class PdfService {
     const css = this.getCss(config);
     const cover = this.getCoverHtml(laudo, config);
     const infoPage = this.getInfoPageHtml(laudo, ambientes, config);
-    const photos = this.getPhotosHtml(imagens, laudo);
+    const photos = this.getPhotosHtml(imagens, laudo, config);
     const report = await this.getReportHtml(laudo, sections);
     const signatures = this.getSignaturesHtml(laudo, config);
 
@@ -557,12 +566,35 @@ export class PdfService {
 
         /* FOTOS */
         .grid-fotos { display: grid; grid-template-columns: repeat(3, 1fr); gap: ${config.espacamentoVertical}px ${config.espacamentoHorizontal}px; margin-top: 0; }
+        .page-compacta { padding: 18px 20px 28px; }
+        .grid-fotos-compacta { gap: 0 8px; }
         .foto-card { break-inside: avoid; }
         .foto-container { border: 1px solid #9ca3af; margin-bottom: 4px; overflow: hidden; }
         .foto-img { width: 100%; height: 200px; object-fit: cover; object-position: center; display: block; }
+        .foto-container-compacta { border: 1px solid #d1d5db; margin-bottom: 0; overflow: hidden; }
+        .foto-img-compacta { width: 100%; height: 178px; object-fit: cover; object-position: center; display: block; }
         .foto-ambiente { font-weight: bold; font-size: 10px; text-transform: uppercase; line-height: 1.2; text-align: left; }
         .foto-legenda { font-size: 9px; line-height: 1.4; text-align: left; }
         .foto-legenda strong { margin-right: 4px; }
+        .foto-legenda-compacta {
+            height: 23px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+            line-height: 1.2;
+            text-align: center;
+            font-weight: 700;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .foto-legenda-compacta span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 100%;
+        }
 
         /* RELATÓRIO */
         .relatorio-titulo { font-size: 14px; font-weight: 700; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 20px; text-transform: uppercase; }
@@ -765,22 +797,41 @@ export class PdfService {
       `;
   }
 
-  private getPhotosHtml(imagens: any[], laudo: Laudo): string {
-    const PHOTOS_PER_PAGE = 12;
+  private getPhotosHtml(imagens: any[], laudo: Laudo, config: PdfConfig): string {
+    const isCompacto = config.modoPreviewPdf === 'compacto';
+    const PHOTOS_PER_PAGE = isCompacto ? 15 : 12;
     let html = '';
 
     for (let i = 0; i < imagens.length; i += PHOTOS_PER_PAGE) {
       const pagePhotos = imagens.slice(i, i + PHOTOS_PER_PAGE);
 
       html += `
-            <div class="page-container page-dynamic">
-                <div class="grid-fotos">
+            <div class="page-container ${isCompacto ? 'page-compacta' : 'page-dynamic'}">
+                <div class="grid-fotos ${isCompacto ? 'grid-fotos-compacta' : ''}">
                     ${pagePhotos
                       .map((img) => {
                         const ambienteSemNumero = (img.ambiente || 'AMBIENTE').replace(
                           /^\d+\s*-\s*/,
                           '',
                         );
+
+                        if (isCompacto) {
+                          const rotulo = `${img.numeroImagemNoAmbiente || ''} (${
+                            img.numeroAmbiente || ''
+                          }) ${ambienteSemNumero}`;
+
+                          return `
+                        <div class="foto-card">
+                            <div class="foto-container-compacta">
+                                <img src="${img.publicUrl}" class="foto-img-compacta" />
+                            </div>
+                            <div class="foto-legenda-compacta" title="${this.escapeHtml(rotulo)}">
+                                <span>${this.escapeHtml(rotulo)}</span>
+                            </div>
+                        </div>
+                    `;
+                        }
+
                         return `
                         <div class="foto-card">
                             <div class="foto-container">

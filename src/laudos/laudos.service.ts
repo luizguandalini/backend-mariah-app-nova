@@ -63,6 +63,7 @@ export class LaudosService {
     laudoId: string,
     userId: string,
     userRole: UserRole,
+    modoPreviewPdf?: 'detalhado' | 'compacto',
   ): Promise<{ message: string; status: string }> {
     const laudo = await this.findOne(laudoId);
 
@@ -96,6 +97,7 @@ export class LaudosService {
     const success = await this.rabbitMQService.addToPdfQueue({
       laudoId,
       usuarioId: userId,
+      modoPreviewPdf,
       priority: 5, // Prioridade padrão
     });
 
@@ -809,6 +811,7 @@ export class LaudosService {
       status: smartStatus,
       tamanho: laudo.tamanho,
       pdfUrl: laudo.pdfUrl,
+      pdfModoPreview: laudo.pdfModoPreview,
       totalAmbientes: laudo.totalAmbientes,
       totalFotos: laudo.totalFotos,
       latitude: laudo.latitude,
@@ -1063,6 +1066,7 @@ export class LaudosService {
       status: l.status,
       tamanho: l.tamanho,
       pdfUrl: l.pdfUrl,
+      pdfModoPreview: l.pdfModoPreview,
       totalAmbientes: l.totalAmbientes,
       totalFotos: l.totalFotos,
       latitude: l.latitude,

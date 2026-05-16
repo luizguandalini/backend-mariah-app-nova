@@ -25,8 +25,8 @@ services:
     hostname: rabbitmq
     restart: unless-stopped
     ports:
-      - "5672:5672"    # AMQP (conexão do backend)
-      - "15672:15672"  # Management UI (http://localhost:15672)
+      - "${RABBITMQ_AMQP_PORT:-5672}:5672"        # AMQP (conexão do backend)
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672" # Management UI
     environment:
       RABBITMQ_DEFAULT_USER: mariah
       RABBITMQ_DEFAULT_PASS: mariah2026

@@ -97,6 +97,9 @@ export class Laudo {
   @Column({ name: 'pdf_url', type: 'text', nullable: true })
   pdfUrl: string;
 
+  @Column({ name: 'pdf_modo_preview', type: 'varchar', length: 20, default: 'detalhado' })
+  pdfModoPreview: 'detalhado' | 'compacto';
+
   @Column({ name: 'total_ambientes', type: 'int', default: 0 })
   totalAmbientes: number;
 

@@ -16,7 +16,11 @@ export class PdfProcessor implements OnModuleInit {
       try {
         await this.rabbitMQService.consumePdf(async (message: QueueMessage) => {
           this.logger.log(`📄 Recebido pedido de PDF para laudo ${message.laudoId}`);
-          await this.pdfService.generateInternal(message.laudoId, message.usuarioId);
+          await this.pdfService.generateInternal(
+            message.laudoId,
+            message.usuarioId,
+            message.modoPreviewPdf,
+          );
         });
         this.logger.log('✅ PdfProcessor ouvindo fila de PDFs');
       } catch (error) {

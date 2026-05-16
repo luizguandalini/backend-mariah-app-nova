@@ -29,6 +29,7 @@ import { DashboardStatsDto } from './dto/dashboard-stats.dto';
 import { AddAmbienteWebDto } from './dto/add-ambiente-web.dto';
 import { ReordenarAmbientesWebDto } from './dto/reordenar-ambientes-web.dto';
 import { RenameAmbienteWebDto } from './dto/rename-ambiente-web.dto';
+import { RequestPdfGenerationDto } from './dto/request-pdf-generation.dto';
 import { Laudo } from './entities/laudo.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -195,8 +196,17 @@ export class LaudosController {
     status: 400,
     description: 'Já existe um processamento em andamento ou erro na fila',
   })
-  async requestPdf(@Param('id') id: string, @CurrentUser() user: any) {
-    return await this.laudosService.requestPdfGeneration(id, user.id, user.role);
+  async requestPdf(
+    @Param('id') id: string,
+    @Body() body: RequestPdfGenerationDto,
+    @CurrentUser() user: any,
+  ) {
+    return await this.laudosService.requestPdfGeneration(
+      id,
+      user.id,
+      user.role,
+      body?.modoPreviewPdf,
+    );
   }
 
   // ========== AMBIENTES WEB ==========
