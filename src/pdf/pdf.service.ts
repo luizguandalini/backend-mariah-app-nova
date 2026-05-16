@@ -816,8 +816,8 @@ export class PdfService {
                         );
 
                         if (isCompacto) {
-                          const rotulo = `${img.numeroImagemNoAmbiente || ''} (${
-                            img.numeroAmbiente || ''
+                          const rotulo = `${img.numeroAmbiente || ''} (${
+                            img.numeroImagemNoAmbiente || ''
                           }) ${ambienteSemNumero}`;
 
                           return `
