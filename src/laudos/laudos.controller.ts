@@ -31,6 +31,7 @@ import { ReordenarAmbientesWebDto } from './dto/reordenar-ambientes-web.dto';
 import { RenameAmbienteWebDto } from './dto/rename-ambiente-web.dto';
 import { RequestPdfGenerationDto } from './dto/request-pdf-generation.dto';
 import { UpdateFilenameCaptionPreferenceDto } from './dto/update-filename-caption-preference.dto';
+import { LaudoLogoPresignedDto, ConfirmLaudoLogoDto } from './dto/laudo-logo.dto';
 import { Laudo } from './entities/laudo.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -225,6 +226,48 @@ export class LaudosController {
       user.role,
       body.usarNomeArquivoComoLegenda,
     );
+  }
+
+  // ========== LOGO PERSONALIZADA DO LAUDO ==========
+
+  @Post(':id/logo/presigned-url')
+  @ApiOperation({ summary: 'Gera URL pré-assinada para upload da logo personalizada do laudo' })
+  @ApiParam({ name: 'id', description: 'ID do laudo' })
+  @ApiResponse({ status: 201, description: 'URL gerada com sucesso' })
+  async getLaudoLogoUploadUrl(
+    @Param('id') id: string,
+    @Body() dto: LaudoLogoPresignedDto,
+    @CurrentUser() user: any,
+  ): Promise<{ uploadUrl: string; s3Key: string }> {
+    return await this.laudosService.getLaudoLogoUploadUrl(
+      id,
+      user.id,
+      user.role,
+      dto.filename,
+      dto.contentType,
+      dto.fileSize,
+    );
+  }
+
+  @Post(':id/logo/confirm')
+  @ApiOperation({ summary: 'Confirma o upload da logo personalizada do laudo' })
+  @ApiParam({ name: 'id', description: 'ID do laudo' })
+  @ApiResponse({ status: 201, description: 'Logo personalizada atualizada' })
+  async confirmLaudoLogo(
+    @Param('id') id: string,
+    @Body() dto: ConfirmLaudoLogoDto,
+    @CurrentUser() user: any,
+  ): Promise<{ logoPersonalizadaUrl: string }> {
+    return await this.laudosService.confirmLaudoLogo(id, user.id, user.role, dto.s3Key);
+  }
+
+  @Delete(':id/logo')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Remove a logo personalizada do laudo' })
+  @ApiParam({ name: 'id', description: 'ID do laudo' })
+  @ApiResponse({ status: 204, description: 'Logo personalizada removida' })
+  async removeLaudoLogo(@Param('id') id: string, @CurrentUser() user: any): Promise<void> {
+    return await this.laudosService.removeLaudoLogo(id, user.id, user.role);
   }
 
   // ========== AMBIENTES WEB ==========

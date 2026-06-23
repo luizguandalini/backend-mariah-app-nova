@@ -178,7 +178,16 @@ export class LaudosService {
       // Porém, o S3 delete pode demorar. Vamos manter a chamada await aqui.
       await this.uploadsService.deleteImagensByLaudo(id);
 
-      // 3. Remover o laudo (CASCADE irá remover as imagens do banco)
+      // 3b. Deletar a logo personalizada do laudo do S3 (se existir)
+      if (laudo.logoPersonalizadaS3Key) {
+        try {
+          await this.uploadsService.deleteFile(laudo.logoPersonalizadaS3Key);
+        } catch (err) {
+          console.warn('Falha ao tentar remover logo personalizada do S3:', err);
+        }
+      }
+
+      // 4. Remover o laudo (CASCADE irá remover as imagens do banco)
       await transactionalEntityManager.remove(laudo);
     });
   }
@@ -857,7 +866,45 @@ export class LaudosService {
       throw new NotFoundException('Laudo não encontrado');
     }
 
+    // URL assinada da logo personalizada (campo transiente para o frontend exibir
+    // a foto específica deste laudo na capa). Null quando não houver logo própria.
+    (laudo as Laudo & { logoPersonalizadaUrl?: string | null }).logoPersonalizadaUrl =
+      await this.uploadsService.getProfilePhotoUrl(laudo.logoPersonalizadaS3Key);
+
     return laudo;
+  }
+
+  // ========== LOGO PERSONALIZADA DO LAUDO ==========
+
+  async getLaudoLogoUploadUrl(
+    laudoId: string,
+    userId: string,
+    userRole: UserRole,
+    filename: string,
+    contentType: string,
+    fileSize?: number,
+  ): Promise<{ uploadUrl: string; s3Key: string }> {
+    return this.uploadsService.generateLaudoLogoUploadUrl(
+      userId,
+      laudoId,
+      filename,
+      contentType,
+      fileSize,
+      userRole,
+    );
+  }
+
+  async confirmLaudoLogo(
+    laudoId: string,
+    userId: string,
+    userRole: UserRole,
+    s3Key: string,
+  ): Promise<{ logoPersonalizadaUrl: string }> {
+    return this.uploadsService.confirmLaudoLogo(userId, laudoId, s3Key, userRole);
+  }
+
+  async removeLaudoLogo(laudoId: string, userId: string, userRole: UserRole): Promise<void> {
+    return this.uploadsService.removeLaudoLogo(userId, laudoId, userRole);
   }
 
   async updateLaudoDetalhes(

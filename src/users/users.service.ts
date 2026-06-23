@@ -227,6 +227,19 @@ export class UsersService {
       }
     }
 
+    // 3c. Deletar logos personalizadas dos laudos do S3 (se existirem)
+    const logosPersonalizadas = laudos
+      .map((laudo) => laudo.logoPersonalizadaS3Key)
+      .filter((key): key is string => Boolean(key));
+    if (logosPersonalizadas.length > 0) {
+      try {
+        await this.uploadsService.deleteS3ObjectsBatch(logosPersonalizadas);
+        this.logger.log(`  ✅ ${logosPersonalizadas.length} logo(s) personalizada(s) do S3 deletada(s)`);
+      } catch (error) {
+        this.logger.error(`  ⚠️ Erro ao deletar logos personalizadas do S3:`, error);
+      }
+    }
+
     // 4. Deletar registros do banco em transação
     await this.usuarioRepository.manager.transaction(async (manager) => {
       // 4a. Deletar registros da fila de análise
