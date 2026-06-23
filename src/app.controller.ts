@@ -11,7 +11,7 @@ export class AppController {
   }
 
   @Get('health')
-  getHealth(): object {
+  getHealth(): Promise<object> {
     return this.appService.getHealth();
   }
 }

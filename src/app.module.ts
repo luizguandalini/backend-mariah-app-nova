@@ -15,6 +15,7 @@ import { QueueModule } from './queue/queue.module';
 import { PdfModule } from './pdf/pdf.module';
 import { SystemConfigModule } from './config/config.module';
 import { DatabaseSeedService } from './database/database-seed.service';
+import { SchemaCompatibilityService } from './database/schema-compatibility.service';
 import { Usuario } from './users/entities/usuario.entity';
 import { NotificationsModule } from './notifications/notifications.module';
 import { KanbanModule } from './kanban/kanban.module';
@@ -89,7 +90,7 @@ import { KanbanModule } from './kanban/kanban.module';
     KanbanModule,
   ],
   controllers: [AppController],
-  providers: [AppService, DatabaseSeedService],
+  providers: [AppService, DatabaseSeedService, SchemaCompatibilityService],
 })
 export class AppModule {}
 
