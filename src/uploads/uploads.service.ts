@@ -1103,6 +1103,118 @@ ${itemsListString}`;
     }
   }
 
+  // ===================== FOTO DE PERFIL / LOGO =====================
+  private static readonly PROFILE_PHOTO_ALLOWED_MIME = [
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+  ];
+  private static readonly PROFILE_PHOTO_MAX_BYTES = 5 * 1024 * 1024; // 5MB
+
+  /**
+   * Gera URL pré-assinada para upload da foto de perfil (ou logo da empresa)
+   * direto ao S3. A imagem fica isolada por usuário em users/{userId}/perfil/.
+   */
+  async generateProfilePhotoUploadUrl(
+    userId: string,
+    filename: string,
+    contentType: string,
+    fileSize?: number,
+  ): Promise<PresignedUrlResponse> {
+    if (!UploadsService.PROFILE_PHOTO_ALLOWED_MIME.includes(contentType)) {
+      throw new BadRequestException(
+        'Formato inválido. Envie uma imagem JPEG, PNG ou WEBP.',
+      );
+    }
+
+    if (typeof fileSize === 'number' && fileSize > UploadsService.PROFILE_PHOTO_MAX_BYTES) {
+      throw new BadRequestException('A imagem excede o limite de 5MB.');
+    }
+
+    const safeFilename = (filename || 'foto')
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .substring(0, 100);
+
+    const s3Key = `users/${userId}/perfil/${randomUUID()}_${safeFilename}`;
+
+    const command = new PutObjectCommand({
+      Bucket: this.bucketName,
+      Key: s3Key,
+      ContentType: contentType,
+    });
+
+    const uploadUrl = await getSignedUrl(this.s3Client, command, { expiresIn: 900 });
+
+    return { uploadUrl, s3Key };
+  }
+
+  /**
+   * Confirma o upload da foto de perfil: valida que a chave pertence ao usuário,
+   * remove a foto anterior do S3 (se houver) e persiste a nova chave no usuário.
+   * Retorna uma URL assinada para exibição imediata.
+   */
+  async confirmProfilePhoto(userId: string, s3Key: string): Promise<{ fotoPerfilUrl: string }> {
+    const expectedPrefix = `users/${userId}/perfil/`;
+    if (!s3Key || !s3Key.startsWith(expectedPrefix)) {
+      throw new ForbiddenException('Chave de imagem inválida para este usuário.');
+    }
+
+    const usuario = await this.usuarioRepository.findOne({ where: { id: userId } });
+    if (!usuario) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    const chaveAnterior = usuario.fotoPerfilS3Key;
+
+    usuario.fotoPerfilS3Key = s3Key;
+    await this.usuarioRepository.save(usuario);
+
+    // Limpa a foto anterior do S3 (best-effort, fora do caminho crítico)
+    if (chaveAnterior && chaveAnterior !== s3Key) {
+      await this.deleteFile(chaveAnterior);
+    }
+
+    const fotoPerfilUrl = await this.getProfilePhotoUrl(s3Key);
+    return { fotoPerfilUrl };
+  }
+
+  /**
+   * Remove a foto de perfil do usuário (S3 + banco).
+   */
+  async removeProfilePhoto(userId: string): Promise<void> {
+    const usuario = await this.usuarioRepository.findOne({ where: { id: userId } });
+    if (!usuario) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    const chave = usuario.fotoPerfilS3Key;
+    if (!chave) {
+      return;
+    }
+
+    usuario.fotoPerfilS3Key = null;
+    await this.usuarioRepository.save(usuario);
+
+    await this.deleteFile(chave);
+  }
+
+  /**
+   * Gera uma URL assinada de visualização para uma foto de perfil.
+   * Retorna null se a chave não existir.
+   */
+  async getProfilePhotoUrl(s3Key?: string | null): Promise<string | null> {
+    if (!s3Key) {
+      return null;
+    }
+
+    const command = new GetObjectCommand({
+      Bucket: this.bucketName,
+      Key: s3Key,
+    });
+
+    return getSignedUrl(this.s3Client, command, { expiresIn: 3600 });
+  }
+
   private normalizarOrdem(ordem?: number): number {
     if (typeof ordem !== 'number' || !Number.isFinite(ordem)) {
       return 0;
