@@ -100,6 +100,11 @@ export class Laudo {
   @Column({ name: 'pdf_modo_preview', type: 'varchar', length: 20, default: 'detalhado' })
   pdfModoPreview: 'detalhado' | 'compacto';
 
+  // Imagem/logo personalizada deste laudo específico (substitui a foto de perfil
+  // do usuário na capa). Se nula, usa a foto de perfil do dono como antes.
+  @Column({ name: 'logo_personalizada_s3_key', type: 'varchar', length: 512, nullable: true })
+  logoPersonalizadaS3Key: string | null;
+
   @Column({ name: 'usar_nome_arquivo_como_legenda', type: 'boolean', default: false })
   usarNomeArquivoComoLegenda: boolean;
 

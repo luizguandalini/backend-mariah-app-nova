@@ -1215,6 +1215,114 @@ ${itemsListString}`;
     return getSignedUrl(this.s3Client, command, { expiresIn: 3600 });
   }
 
+  // ===================== LOGO PERSONALIZADA DO LAUDO =====================
+
+  /**
+   * Carrega o laudo e valida que o usuário (dono ou admin/dev) pode gerenciá-lo.
+   */
+  private async getLaudoComPermissao(
+    laudoId: string,
+    userId: string,
+    userRole?: UserRole,
+  ): Promise<Laudo> {
+    const laudo = await this.laudoRepository.findOne({ where: { id: laudoId } });
+    if (!laudo) {
+      throw new NotFoundException('Laudo não encontrado');
+    }
+
+    const isOwner = laudo.usuarioId === userId;
+    const isAdminOrDev = userRole ? [UserRole.DEV, UserRole.ADMIN].includes(userRole) : false;
+    if (!isOwner && !isAdminOrDev) {
+      throw new ForbiddenException('Você não tem permissão para alterar a logo deste laudo');
+    }
+
+    return laudo;
+  }
+
+  /**
+   * Gera URL pré-assinada para upload da imagem/logo personalizada do laudo.
+   * A imagem fica isolada por laudo em users/{ownerId}/laudos/{laudoId}/logo/.
+   */
+  async generateLaudoLogoUploadUrl(
+    userId: string,
+    laudoId: string,
+    filename: string,
+    contentType: string,
+    fileSize: number | undefined,
+    userRole?: UserRole,
+  ): Promise<PresignedUrlResponse> {
+    if (!UploadsService.PROFILE_PHOTO_ALLOWED_MIME.includes(contentType)) {
+      throw new BadRequestException('Formato inválido. Envie uma imagem JPEG, PNG ou WEBP.');
+    }
+
+    if (typeof fileSize === 'number' && fileSize > UploadsService.PROFILE_PHOTO_MAX_BYTES) {
+      throw new BadRequestException('A imagem excede o limite de 5MB.');
+    }
+
+    const laudo = await this.getLaudoComPermissao(laudoId, userId, userRole);
+
+    const safeFilename = (filename || 'logo').replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 100);
+    const s3Key = `users/${laudo.usuarioId}/laudos/${laudoId}/logo/${randomUUID()}_${safeFilename}`;
+
+    const command = new PutObjectCommand({
+      Bucket: this.bucketName,
+      Key: s3Key,
+      ContentType: contentType,
+    });
+
+    const uploadUrl = await getSignedUrl(this.s3Client, command, { expiresIn: 900 });
+
+    return { uploadUrl, s3Key };
+  }
+
+  /**
+   * Confirma o upload da logo personalizada: valida a chave, remove a anterior
+   * do S3 (se houver) e persiste a nova chave no laudo. Retorna URL assinada.
+   */
+  async confirmLaudoLogo(
+    userId: string,
+    laudoId: string,
+    s3Key: string,
+    userRole?: UserRole,
+  ): Promise<{ logoPersonalizadaUrl: string }> {
+    const laudo = await this.getLaudoComPermissao(laudoId, userId, userRole);
+
+    const expectedPrefix = `users/${laudo.usuarioId}/laudos/${laudoId}/logo/`;
+    if (!s3Key || !s3Key.startsWith(expectedPrefix)) {
+      throw new ForbiddenException('Chave de imagem inválida para este laudo.');
+    }
+
+    const chaveAnterior = laudo.logoPersonalizadaS3Key;
+
+    laudo.logoPersonalizadaS3Key = s3Key;
+    await this.laudoRepository.save(laudo);
+
+    if (chaveAnterior && chaveAnterior !== s3Key) {
+      await this.deleteFile(chaveAnterior);
+    }
+
+    const logoPersonalizadaUrl = await this.getProfilePhotoUrl(s3Key);
+    return { logoPersonalizadaUrl: logoPersonalizadaUrl as string };
+  }
+
+  /**
+   * Remove a logo personalizada do laudo (S3 + banco). O laudo volta a usar a
+   * foto de perfil do dono na capa.
+   */
+  async removeLaudoLogo(userId: string, laudoId: string, userRole?: UserRole): Promise<void> {
+    const laudo = await this.getLaudoComPermissao(laudoId, userId, userRole);
+
+    const chave = laudo.logoPersonalizadaS3Key;
+    if (!chave) {
+      return;
+    }
+
+    laudo.logoPersonalizadaS3Key = null;
+    await this.laudoRepository.save(laudo);
+
+    await this.deleteFile(chave);
+  }
+
   private normalizarOrdem(ordem?: number): number {
     if (typeof ordem !== 'number' || !Number.isFinite(ordem)) {
       return 0;

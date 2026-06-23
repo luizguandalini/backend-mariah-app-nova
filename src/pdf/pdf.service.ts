@@ -150,8 +150,10 @@ export class PdfService {
       // URL assinada da foto de perfil/logo do dono do laudo (para a capa)
       let logoUrl: string | null = null;
       try {
+        // Prioriza a logo personalizada deste laudo; se não houver, usa a foto
+        // de perfil do dono (comportamento original).
         logoUrl = await this.uploadsService.getProfilePhotoUrl(
-          laudo.usuario?.fotoPerfilS3Key,
+          laudo.logoPersonalizadaS3Key || laudo.usuario?.fotoPerfilS3Key,
         );
       } catch (err) {
         this.logger.warn('Não foi possível obter a logo da capa', err);
