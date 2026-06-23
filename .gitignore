@@ -24,10 +24,16 @@ Thumbs.db
 logs/
 *.log
 
-# Environment
+# Environment (ignora todos os .env, exceto o template)
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+
+# Chaves e certificados (ex.: chave .pem do túnel SSH para o RDS)
+*.pem
+*.key
+*.p12
+*.pfx
 
 # Testing
 coverage/

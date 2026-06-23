@@ -47,8 +47,14 @@ import { KanbanModule } from './kanban/kanban.module';
         const dbDatabase = getConfig('DB_DATABASE');
         const dbSynchronize = getConfig('DB_SYNCHRONIZE') === 'true' || (!isProduction && getConfig('DB_SYNCHRONIZE') === '');
 
+        // SSL: por padrão, ligado em produção (RDS exige) e desligado em dev
+        // (Postgres local no Docker não fala SSL). Pode ser forçado via
+        // DEV_DB_SSL / PROD_DB_SSL (ex.: dev apontando para o RDS via túnel).
+        const dbSslRaw = getConfig('DB_SSL');
+        const useSsl = dbSslRaw === '' ? isProduction : dbSslRaw === 'true';
+
         // Log da configuração (sem dados sensíveis)
-        console.log(`📊 Banco de dados: ${dbHost}:${dbPort} (${isProduction ? 'PRODUÇÃO' : 'DESENVOLVIMENTO'}) - Sync: ${dbSynchronize}`);
+        console.log(`📊 Banco de dados: ${dbHost}:${dbPort} (${isProduction ? 'PRODUÇÃO' : 'DESENVOLVIMENTO'}) - Sync: ${dbSynchronize} - SSL: ${useSsl}`);
 
         return {
           type: 'postgres',
@@ -62,9 +68,7 @@ import { KanbanModule } from './kanban/kanban.module';
           synchronize: dbSynchronize,
           // Em prod, só loga erros; em dev, loga tudo
           logging: isProduction ? ['error'] : true,
-          ssl: {
-            rejectUnauthorized: false,
-          },
+          ssl: useSsl ? { rejectUnauthorized: false } : false,
         };
       },
       inject: [ConfigService],

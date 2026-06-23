@@ -68,7 +68,9 @@ export class OpenAIService implements OnModuleInit {
       const configs = await this.configRepository.find();
       const configMap = new Map(configs.map((c) => [c.key, c.value]));
 
-      this.apiKey = configMap.get('openai_api_key') || null;
+      // Prioriza a chave salva no banco; cai para a variável de ambiente
+      // (útil em dev para usar a IA real sem precisar gravar no banco).
+      this.apiKey = configMap.get('openai_api_key') || process.env.OPENAI_API_KEY || null;
       this.model = configMap.get('openai_model') || 'gpt-4o';
       this.maxTokens = parseInt(configMap.get('openai_max_tokens') || '70', 10);
       this.rateLimitRpm = parseInt(configMap.get('rate_limit_rpm') || '20', 10);
@@ -81,10 +83,28 @@ export class OpenAIService implements OnModuleInit {
   }
 
   /**
+   * Legenda padrão usada em desenvolvimento quando não há chave OpenAI.
+   * Deixa claro que é apenas teste e que nenhuma chamada real foi feita.
+   */
+  private static readonly DEV_MOCK_LEGENDA =
+    '[TESTE - SEM CHAVE OPENAI] Legenda gerada automaticamente em modo desenvolvimento.';
+
+  /**
+   * Indica se devemos usar a resposta mockada de desenvolvimento:
+   * fora de produção E sem uma chave OpenAI real configurada.
+   */
+  private isDevMock(): boolean {
+    const hasRealKey = !!this.apiKey && this.apiKey.length > 10;
+    return process.env.NODE_ENV !== 'production' && !hasRealKey;
+  }
+
+  /**
    * Verifica se o serviço está configurado e pronto
    */
   isConfigured(): boolean {
-    return !!this.apiKey && this.apiKey.length > 10;
+    // Em dev sem chave, consideramos "configurado" para que a fila aceite
+    // o laudo e o fluxo possa ser testado com legendas mockadas.
+    return this.isDevMock() || (!!this.apiKey && this.apiKey.length > 10);
   }
 
   /**
@@ -165,6 +185,19 @@ export class OpenAIService implements OnModuleInit {
     prompt: string,
     retryCount: number = 0,
   ): Promise<AnalysisResult> {
+    // Em desenvolvimento sem chave: não chama a OpenAI, devolve uma legenda
+    // padrão de teste (sem custo) avisando que está sem chave.
+    if (this.isDevMock()) {
+      this.logger.warn(
+        '⚠️  OpenAI em modo DEV sem chave — retornando legenda de teste (nenhuma chamada real foi feita).',
+      );
+      return {
+        success: true,
+        content: OpenAIService.DEV_MOCK_LEGENDA,
+        tokensUsed: 0,
+      };
+    }
+
     if (!this.isConfigured()) {
       return {
         success: false,
