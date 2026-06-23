@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Post,
   Put,
   Body,
   Param,
@@ -15,6 +16,7 @@ import { UsersService } from './users.service';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { UpdateConfiguracoesPdfDto } from './dto/update-configuracoes-pdf.dto';
 import { UpdatePushTokenDto } from './dto/update-push-token.dto';
+import { FotoPerfilPresignedDto, ConfirmFotoPerfilDto } from './dto/foto-perfil-presigned.dto';
 import { Usuario } from './entities/usuario.entity';
 import { ConfiguracaoPdfUsuario } from './entities/configuracao-pdf-usuario.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -35,6 +37,39 @@ export class UsersController {
   @ApiResponse({ status: 200, description: 'Dados retornados com sucesso' })
   async getMe(@CurrentUser() user: any): Promise<Usuario> {
     return await this.usersService.getMe(user.id);
+  }
+
+  @Post('me/foto-perfil/presigned-url')
+  @ApiOperation({ summary: 'Gera URL pré-assinada para upload da foto de perfil' })
+  @ApiResponse({ status: 201, description: 'URL gerada com sucesso' })
+  async getFotoPerfilUploadUrl(
+    @CurrentUser() user: any,
+    @Body() dto: FotoPerfilPresignedDto,
+  ): Promise<{ uploadUrl: string; s3Key: string }> {
+    return await this.usersService.getFotoPerfilUploadUrl(
+      user.id,
+      dto.filename,
+      dto.contentType,
+      dto.fileSize,
+    );
+  }
+
+  @Post('me/foto-perfil/confirm')
+  @ApiOperation({ summary: 'Confirma o upload da foto de perfil' })
+  @ApiResponse({ status: 201, description: 'Foto de perfil atualizada' })
+  async confirmFotoPerfil(
+    @CurrentUser() user: any,
+    @Body() dto: ConfirmFotoPerfilDto,
+  ): Promise<{ fotoPerfilUrl: string }> {
+    return await this.usersService.confirmFotoPerfil(user.id, dto.s3Key);
+  }
+
+  @Delete('me/foto-perfil')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Remove a foto de perfil do usuário' })
+  @ApiResponse({ status: 204, description: 'Foto de perfil removida' })
+  async removeFotoPerfil(@CurrentUser() user: any): Promise<void> {
+    return await this.usersService.removeFotoPerfil(user.id);
   }
 
   @Get()

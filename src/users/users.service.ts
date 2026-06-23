@@ -217,6 +217,16 @@ export class UsersService {
       }
     }
 
+    // 3b. Deletar foto de perfil / logo do S3 (se existir)
+    if (usuario.fotoPerfilS3Key) {
+      try {
+        await this.uploadsService.deleteFile(usuario.fotoPerfilS3Key);
+        this.logger.log(`  ✅ Foto de perfil do S3 deletada`);
+      } catch (error) {
+        this.logger.error(`  ⚠️ Erro ao deletar foto de perfil do S3:`, error);
+      }
+    }
+
     // 4. Deletar registros do banco em transação
     await this.usuarioRepository.manager.transaction(async (manager) => {
       // 4a. Deletar registros da fila de análise
@@ -253,8 +263,41 @@ export class UsersService {
     this.logger.warn(`🗑️ Deleção completa do usuário ${usuario.nome} (${usuario.email}) finalizada com sucesso`);
   }
 
-  async getMe(userId: string): Promise<Usuario> {
-    return await this.findOne(userId);
+  async getMe(userId: string): Promise<Usuario & { fotoPerfilUrl: string | null }> {
+    const usuario = await this.findOne(userId);
+    const fotoPerfilUrl = await this.uploadsService.getProfilePhotoUrl(usuario.fotoPerfilS3Key);
+    return Object.assign(usuario, { fotoPerfilUrl });
+  }
+
+  /**
+   * Gera URL pré-assinada para o usuário enviar sua foto de perfil ao S3.
+   */
+  async getFotoPerfilUploadUrl(
+    userId: string,
+    filename: string,
+    contentType: string,
+    fileSize?: number,
+  ): Promise<{ uploadUrl: string; s3Key: string }> {
+    return this.uploadsService.generateProfilePhotoUploadUrl(
+      userId,
+      filename,
+      contentType,
+      fileSize,
+    );
+  }
+
+  /**
+   * Confirma o upload da foto de perfil e persiste a chave no usuário.
+   */
+  async confirmFotoPerfil(userId: string, s3Key: string): Promise<{ fotoPerfilUrl: string }> {
+    return this.uploadsService.confirmProfilePhoto(userId, s3Key);
+  }
+
+  /**
+   * Remove a foto de perfil do usuário.
+   */
+  async removeFotoPerfil(userId: string): Promise<void> {
+    return this.uploadsService.removeProfilePhoto(userId);
   }
 
   async getConfiguracoesPdf(usuarioId: string): Promise<ConfiguracaoPdfUsuario> {

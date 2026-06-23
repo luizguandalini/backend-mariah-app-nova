@@ -34,6 +34,9 @@ export class Usuario {
   @Column({ name: 'expo_push_token', type: 'varchar', length: 255, nullable: true })
   expoPushToken: string;
 
+  @Column({ name: 'foto_perfil_s3_key', type: 'varchar', length: 512, nullable: true })
+  fotoPerfilS3Key: string | null;
+
   @CreateDateColumn({ 
     name: 'created_at',
     type: 'timestamptz',
