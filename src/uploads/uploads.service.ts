@@ -17,6 +17,7 @@ import {
   DeleteObjectsCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { buildS3ClientConfig } from '../common/utils/s3-client.util';
 import { ImagemLaudo } from './entities/imagem-laudo.entity';
 import { Usuario } from '../users/entities/usuario.entity';
 import { Laudo } from '../laudos/entities/laudo.entity';
@@ -64,13 +65,7 @@ export class UploadsService {
   ) {
     this.bucketName = this.configService.get<string>('S3_BUCKET_NAME', 'mariah-app-uploads-prod');
 
-    this.s3Client = new S3Client({
-      region: this.configService.get<string>('AWS_REGION', 'us-east-1'),
-      credentials: {
-        accessKeyId: this.configService.get<string>('AWS_ACCESS_KEY_ID', ''),
-        secretAccessKey: this.configService.get<string>('AWS_SECRET_ACCESS_KEY', ''),
-      },
-    });
+    this.s3Client = new S3Client(buildS3ClientConfig(this.configService));
   }
 
   /**

@@ -1,21 +1,48 @@
 # ========================================
-# Docker Compose - RabbitMQ para Backend Mariah
+# Docker Compose - Infra LOCAL de desenvolvimento (Backend Mariah)
 # ========================================
-# 
-# USO:
-#   Subir RabbitMQ:      docker compose up -d
-#   Ver logs:            docker compose logs -f rabbitmq
-#   Parar:               docker compose down
-#   Resetar dados:       docker compose down -v
 #
-# Após subir, rode o backend normalmente:
+# Sobe os serviços de apoio para rodar o backend localmente SEM depender da AWS:
+#   - PostgreSQL  (substitui o RDS em dev)
+#   - RabbitMQ    (message broker)
+#   - MinIO       (S3 local compatível, substitui o S3 em dev)
+#
+# USO:
+#   Subir tudo:        docker compose up -d
+#   Ver logs:          docker compose logs -f
+#   Parar:             docker compose down
+#   Resetar dados:     docker compose down -v
+#
+# Depois de subir, rode o backend:
 #   npm run start:dev
 #
+# IMPORTANTE: este arquivo é só para DEV. Produção usa docker-compose.prod.yml
+# (que usa RDS e S3 reais e NÃO sobe Postgres/MinIO).
 # ========================================
 
-version: '3.8'
-
 services:
+  # ======================================
+  # PostgreSQL - Banco de dados (apenas DEV)
+  # ======================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: mariah-postgres
+    restart: unless-stopped
+    ports:
+      - "${DEV_DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${DEV_DB_USERNAME:-mariah}
+      POSTGRES_PASSWORD: ${DEV_DB_PASSWORD:-mariah2026}
+      POSTGRES_DB: ${DEV_DB_DATABASE:-mariah}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DEV_DB_USERNAME:-mariah} -d ${DEV_DB_DATABASE:-mariah}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   # ======================================
   # RabbitMQ - Message Broker
   # ======================================
@@ -40,9 +67,53 @@ services:
       retries: 5
       start_period: 30s
 
+  # ======================================
+  # MinIO - S3 local compatível (apenas DEV)
+  # ======================================
+  minio:
+    image: minio/minio:latest
+    container_name: mariah-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "${MINIO_PORT:-9000}:9000"          # API S3
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"  # Console web
+    environment:
+      MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID:-mariahdev}
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY:-mariahdev123}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ======================================
+  # MinIO bootstrap - cria o bucket de uploads (apenas DEV)
+  # ======================================
+  minio-setup:
+    image: minio/mc:latest
+    container_name: mariah-minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${AWS_ACCESS_KEY_ID:-mariahdev} ${AWS_SECRET_ACCESS_KEY:-mariahdev123} &&
+      mc mb --ignore-existing local/${S3_BUCKET_NAME:-mariah-app-uploads-dev} &&
+      mc anonymous set download local/${S3_BUCKET_NAME:-mariah-app-uploads-dev} &&
+      echo 'Bucket pronto.';
+      "
+
 # ======================================
 # Volumes (persistência de dados)
 # ======================================
 volumes:
+  postgres_data:
+    driver: local
   rabbitmq_data:
+    driver: local
+  minio_data:
     driver: local
