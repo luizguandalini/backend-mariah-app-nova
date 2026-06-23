@@ -57,6 +57,46 @@ export class SchemaCompatibilityService implements OnApplicationBootstrap {
       column: 'modo_preview_pdf',
       definition: "varchar(20) NOT NULL DEFAULT 'detalhado'",
     },
+    {
+      table: 'configuracoes_pdf_usuario',
+      column: 'metodologia_texto',
+      definition: 'text',
+    },
+    {
+      table: 'configuracoes_pdf_usuario',
+      column: 'termos_gerais_texto',
+      definition: 'text',
+    },
+    {
+      table: 'configuracoes_pdf_usuario',
+      column: 'assinatura_texto',
+      definition: 'text',
+    },
+    {
+      table: 'configuracoes_pdf_usuario',
+      column: 'mostrar_logo_capa',
+      definition: 'boolean NOT NULL DEFAULT true',
+    },
+    {
+      table: 'configuracoes_pdf_usuario',
+      column: 'logo_capa_x',
+      definition: 'real',
+    },
+    {
+      table: 'configuracoes_pdf_usuario',
+      column: 'logo_capa_y',
+      definition: 'real',
+    },
+    {
+      table: 'configuracoes_pdf_usuario',
+      column: 'logo_capa_largura',
+      definition: 'real',
+    },
+    {
+      table: 'configuracoes_pdf_usuario',
+      column: 'logo_capa_altura',
+      definition: 'real',
+    },
   ];
 
   constructor(private readonly dataSource: DataSource) {}
