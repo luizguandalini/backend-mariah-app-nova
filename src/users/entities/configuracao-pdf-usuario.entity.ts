@@ -41,6 +41,23 @@ export class ConfiguracaoPdfUsuario {
   @Column({ name: 'assinatura_texto', type: 'text', nullable: true })
   assinaturaTexto: string | null;
 
+  // --- Logo da capa (foto de perfil exibida no topo da capa do laudo) ---
+  // Coordenadas/dimensões em px relativas a uma página A4 de referência (794 x 1123 @ 96dpi).
+  @Column({ name: 'mostrar_logo_capa', type: 'boolean', default: true })
+  mostrarLogoCapa: boolean;
+
+  @Column({ name: 'logo_capa_x', type: 'real', nullable: true })
+  logoCapaX: number | null;
+
+  @Column({ name: 'logo_capa_y', type: 'real', nullable: true })
+  logoCapaY: number | null;
+
+  @Column({ name: 'logo_capa_largura', type: 'real', nullable: true })
+  logoCapaLargura: number | null;
+
+  @Column({ name: 'logo_capa_altura', type: 'real', nullable: true })
+  logoCapaAltura: number | null;
+
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

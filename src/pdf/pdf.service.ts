@@ -38,6 +38,14 @@ const TERMOS_GERAIS_TEXTS = [
 const ASSINATURA_TEXTO =
   'Declaram as partes estarem cientes das imagens e textos apresentados no presente termo, estando em conformidade com a vontade dos contratantes que, "As Partes e as testemunhas envolvidas neste instrumento afirmam e declaram que esse poderá ser assinado presencialmente ou eletronicamente, sendo as assinaturas consideradas válidas, vinculantes e executáveis, desde que firmadas pelos representantes legais das Partes. e pôr estarem justos e contratados, assinam o presente, para um só efeito, diante de 02 (duas) testemunhas.';
 
+// Defaults da logo da capa (px em A4 de referência 794 x 1123 @ 96dpi).
+// DEVE ser idêntico ao default usado no frontend (VisualizadorPdfLaudo).
+const LOGO_CAPA_DEFAULT = {
+  largura: 130,
+  x: 588, // ~ alinhado à direita do conteúdo (794 - 76 de margem - 130)
+  y: 8,
+};
+
 type PdfConfig = {
   margemPagina: number;
   espacamentoHorizontal: number;
@@ -46,6 +54,12 @@ type PdfConfig = {
   metodologiaTexto?: string | null;
   termosGeraisTexto?: string | null;
   assinaturaTexto?: string | null;
+  // Logo da capa
+  mostrarLogoCapa?: boolean;
+  logoCapaX?: number | null;
+  logoCapaY?: number | null;
+  logoCapaLargura?: number | null;
+  logoCapaAltura?: number | null;
 };
 
 @Injectable()
@@ -133,12 +147,23 @@ export class PdfService {
       // Progresso 60% -> Renderizar HTML
       this.updateStatus(laudoId, 'PROCESSING', 60);
 
+      // URL assinada da foto de perfil/logo do dono do laudo (para a capa)
+      let logoUrl: string | null = null;
+      try {
+        logoUrl = await this.uploadsService.getProfilePhotoUrl(
+          laudo.usuario?.fotoPerfilS3Key,
+        );
+      } catch (err) {
+        this.logger.warn('Não foi possível obter a logo da capa', err);
+      }
+
       const htmlContent = await this.buildHtml(
         laudo,
         imagensProcessadas,
         ambientes,
         sections,
         config,
+        logoUrl,
       );
 
       // Progresso 80% -> Gerar PDF
@@ -334,9 +359,10 @@ export class PdfService {
     ambientes: any[],
     sections: LaudoSection[],
     config: PdfConfig,
+    logoUrl: string | null = null,
   ): Promise<string> {
     const css = this.getCss(config);
-    const cover = this.getCoverHtml(laudo, config);
+    const cover = this.getCoverHtml(laudo, config, logoUrl);
     const infoPage = this.getInfoPageHtml(laudo, ambientes, config);
     const photos = this.getPhotosHtml(imagens, laudo, config);
     const report = await this.getReportHtml(laudo, sections);
@@ -670,7 +696,28 @@ export class PdfService {
      `;
   }
 
-  private getCoverHtml(laudo: Laudo, config: PdfConfig): string {
+  private getLogoCapaHtml(config: PdfConfig, logoUrl: string | null): string {
+    if (!logoUrl || config.mostrarLogoCapa === false) return '';
+
+    const x = config.logoCapaX ?? LOGO_CAPA_DEFAULT.x;
+    const y = config.logoCapaY ?? LOGO_CAPA_DEFAULT.y;
+    const largura = config.logoCapaLargura ?? LOGO_CAPA_DEFAULT.largura;
+    // Se a altura não foi customizada, usa 'auto' para preservar a proporção natural.
+    const alturaCss =
+      config.logoCapaAltura != null ? `${config.logoCapaAltura}px` : 'auto';
+
+    return `
+            <div style="position: absolute; left: ${x}px; top: ${y}px; width: ${largura}px; height: ${alturaCss}; z-index: 5;">
+                <img src="${logoUrl}" style="width: 100%; height: 100%; object-fit: contain; display: block;" />
+            </div>
+    `;
+  }
+
+  private getCoverHtml(
+    laudo: Laudo,
+    config: PdfConfig,
+    logoUrl: string | null = null,
+  ): string {
     const tipoUso = (laudo.tipoUso || '').toLowerCase();
     const tipo = (laudo.tipoImovel || laudo.tipo || '').toLowerCase();
     const unidade = laudo.unidade || laudo.numero || '';
@@ -694,8 +741,9 @@ export class PdfService {
 
     return `
         <div class="page-container page-cover">
+            ${this.getLogoCapaHtml(config, logoUrl)}
             <div style="height: 35px;"></div>
-            
+
             <div class="div-laudo-de-vistoria">
                 <h1>LAUDO DE VISTORIA</h1>
             </div>
