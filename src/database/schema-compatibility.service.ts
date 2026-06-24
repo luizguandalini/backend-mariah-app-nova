@@ -23,6 +23,11 @@ export class SchemaCompatibilityService implements OnApplicationBootstrap {
       definition: 'varchar(512)',
     },
     {
+      table: 'usuarios',
+      column: 'expo_push_token',
+      definition: 'varchar(255)',
+    },
+    {
       table: 'laudos',
       column: 'ambientes_web',
       definition: "jsonb DEFAULT '[]'::jsonb",
@@ -41,6 +46,11 @@ export class SchemaCompatibilityService implements OnApplicationBootstrap {
       table: 'laudos',
       column: 'logo_personalizada_s3_key',
       definition: 'varchar(512)',
+    },
+    {
+      table: 'laudos',
+      column: 'push_notified_at',
+      definition: 'timestamptz',
     },
     {
       table: 'imagens_laudo',
