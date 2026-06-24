@@ -19,7 +19,9 @@
     "migration:run": "npm run typeorm -- migration:run",
     "migration:revert": "npm run typeorm -- migration:revert",
     "migration:show": "npm run typeorm -- migration:show",
-    "migration:baseline": "ts-node src/database/baseline-migrations.ts"
+    "migration:baseline": "ts-node src/database/baseline-migrations.ts",
+    "schema:check": "ts-node src/database/check-schema-drift.ts",
+    "schema:reconcile": "ts-node src/database/check-schema-drift.ts --apply"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.962.0",
