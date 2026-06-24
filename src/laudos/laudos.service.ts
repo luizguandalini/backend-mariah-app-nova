@@ -7,7 +7,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, SelectQueryBuilder } from 'typeorm';
 import { Laudo, StatusLaudo } from './entities/laudo.entity';
 import { CreateLaudoDto } from './dto/create-laudo.dto';
 import { UpdateLaudoDto } from './dto/update-laudo.dto';
@@ -692,13 +692,19 @@ export class LaudosService {
     const sanitizedLimit = Math.max(1, Math.min(100, Number(limit) || 15));
     const statusFilter = this.parseStatusFilter(status);
 
-    const [laudos, total] = await this.laudoRepository.findAndCount({
-      where: statusFilter ? { status: statusFilter } : {},
-      relations: ['usuario'],
-      order: { createdAt: 'DESC' },
-      skip: (sanitizedPage - 1) * sanitizedLimit,
-      take: sanitizedLimit,
-    });
+    const query = this.laudoRepository
+      .createQueryBuilder('laudo')
+      .leftJoinAndSelect('laudo.usuario', 'usuario');
+
+    if (statusFilter) {
+      this.applyStatusFilter(query, statusFilter);
+    }
+
+    const [laudos, total] = await query
+      .orderBy('laudo.created_at', 'DESC')
+      .skip((sanitizedPage - 1) * sanitizedLimit)
+      .take(sanitizedLimit)
+      .getManyAndCount();
 
     if (laudos.length === 0) {
       return {
@@ -736,7 +742,7 @@ export class LaudosService {
       .where('laudo.usuario_id = :usuarioId', { usuarioId });
 
     if (statusFilter) {
-      query.andWhere('laudo.status = :status', { status: statusFilter });
+      this.applyStatusFilter(query, statusFilter);
     }
 
     if (searchTerm) {
@@ -818,6 +824,50 @@ export class LaudosService {
     }
 
     return normalizedStatus;
+  }
+
+  /**
+   * Aplica o filtro de status na query alinhado com o "status inteligente"
+   * exibido na lista (ver mapLaudoListItem). O status persistido no banco e o
+   * status mostrado no card divergem: um laudo aparece como CONCLUIDO se já tem
+   * PDF, ou se está NAO_INICIADO mas com todas as imagens já analisadas pela IA.
+   * Filtrar apenas por `laudo.status` cru fazia o filtro mostrar laudos com
+   * badge diferente do filtro selecionado (ex.: "Concluído" sob "Não Iniciados").
+   */
+  private applyStatusFilter(
+    query: SelectQueryBuilder<Laudo>,
+    statusFilter: StatusLaudo,
+  ): void {
+    const hasImages =
+      'EXISTS (SELECT 1 FROM imagens_laudo img WHERE img.laudo_id = laudo.id)';
+    const hasUnanalyzed =
+      "EXISTS (SELECT 1 FROM imagens_laudo img WHERE img.laudo_id = laudo.id AND img.imagem_ja_foi_analisada_pela_ia = 'nao')";
+    // "Parece concluído" = mesma regra do smartStatus.
+    const looksConcluido = `(laudo.pdf_url IS NOT NULL OR (laudo.status = '${StatusLaudo.NAO_INICIADO}' AND ${hasImages} AND NOT ${hasUnanalyzed}))`;
+
+    switch (statusFilter) {
+      case StatusLaudo.CONCLUIDO:
+        query.andWhere(
+          `(laudo.status = :statusFilter OR ${looksConcluido})`,
+          { statusFilter },
+        );
+        break;
+      case StatusLaudo.NAO_INICIADO:
+        // NAO_INICIADO "de verdade": não tem PDF e não está todo analisado.
+        query.andWhere(
+          `(laudo.status = :statusFilter AND NOT ${looksConcluido})`,
+          { statusFilter },
+        );
+        break;
+      default:
+        // PROCESSANDO / PARALISADO: o badge vira "Concluído" quando há PDF,
+        // então excluímos esses para a lista bater com o filtro.
+        query.andWhere(
+          '(laudo.status = :statusFilter AND laudo.pdf_url IS NULL)',
+          { statusFilter },
+        );
+        break;
+    }
   }
 
   private async getLaudoImageStatsMap(laudosIds: string[]) {
@@ -1142,14 +1192,20 @@ export class LaudosService {
       ? 999999
       : usuario.quantidadeClassificacoesWeb || 0;
 
+    // Contagens alinhadas com o "status inteligente" exibido na lista
+    // (ver applyStatusFilter), para o dashboard bater com os badges/filtros.
+    const buildStatusCount = (statusFilter: StatusLaudo) => {
+      const query = this.laudoRepository
+        .createQueryBuilder('laudo')
+        .where('laudo.usuario_id = :usuarioId', { usuarioId });
+      this.applyStatusFilter(query, statusFilter);
+      return query.getCount();
+    };
+
     const [totalLaudos, emProcessamento, concluidos] = await Promise.all([
       this.laudoRepository.count({ where: { usuarioId } }),
-      this.laudoRepository.count({
-        where: { usuarioId, status: StatusLaudo.PROCESSANDO },
-      }),
-      this.laudoRepository.count({
-        where: { usuarioId, status: StatusLaudo.CONCLUIDO },
-      }),
+      buildStatusCount(StatusLaudo.PROCESSANDO),
+      buildStatusCount(StatusLaudo.CONCLUIDO),
     ]);
 
     return {
