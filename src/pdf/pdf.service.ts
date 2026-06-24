@@ -500,26 +500,31 @@ export class PdfService {
         </div>
 
         <!-- TESTEMUNHAS -->
-        <div class="testemunhas-grid">
-            <div class="testemunha-item">
-                <div class="testemunha-linha">
-                    <strong>Nome:</strong>
-                    <span class="testemunha-valor">${laudo.testemunha1Nome || ''}</span>
+        <div class="assinaturas-box-wrapper">
+            <div class="assinaturas-box-header">TESTEMUNHAS</div>
+            <div class="testemunhas-grid">
+                <div class="testemunha-item">
+                    <div class="testemunha-assinatura-area"></div>
+                    <div class="testemunha-linha">
+                        <strong>Nome:</strong>
+                        <span class="testemunha-valor">${laudo.testemunha1Nome || ''}</span>
+                    </div>
+                    <div class="testemunha-linha">
+                        <strong>RG:</strong>
+                        <span class="testemunha-valor">${laudo.testemunha1Rg || ''}</span>
+                    </div>
                 </div>
-                <div class="testemunha-linha">
-                    <strong>RG:</strong>
-                    <span class="testemunha-valor">${laudo.testemunha1Rg || ''}</span>
-                </div>
-            </div>
 
-            <div class="testemunha-item">
-                <div class="testemunha-linha">
-                    <strong>Nome:</strong>
-                    <span class="testemunha-valor">${laudo.testemunha2Nome || ''}</span>
-                </div>
-                <div class="testemunha-linha">
-                    <strong>RG:</strong>
-                    <span class="testemunha-valor">${laudo.testemunha2Rg || ''}</span>
+                <div class="testemunha-item">
+                    <div class="testemunha-assinatura-area"></div>
+                    <div class="testemunha-linha">
+                        <strong>Nome:</strong>
+                        <span class="testemunha-valor">${laudo.testemunha2Nome || ''}</span>
+                    </div>
+                    <div class="testemunha-linha">
+                        <strong>RG:</strong>
+                        <span class="testemunha-valor">${laudo.testemunha2Rg || ''}</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -690,8 +695,9 @@ export class PdfService {
         .assinaturas-label { border-top: 1px solid #000; padding-top: 2px; font-size: 10px; width: 100%; }
         .assinaturas-valor { font-family: "Roboto", sans-serif; font-size: 10px; text-align: center; margin-bottom: 5px; min-height: 15px; }
 
-        .testemunhas-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 20px; break-inside: avoid; }
+        .testemunhas-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; break-inside: avoid; }
         .testemunha-item { display: flex; flex-direction: column; gap: 5px; }
+        .testemunha-assinatura-area { height: 45px; border-bottom: 1px solid #000; margin-bottom: 8px; }
         .testemunha-linha { display: flex; align-items: baseline; border-bottom: 1px solid #000; font-size: 11px; padding-bottom: 2px; }
         .testemunha-linha strong { margin-right: 5px; min-width: 40px; }
         .testemunha-valor { font-family: "Roboto", sans-serif; font-size: 11px; }
