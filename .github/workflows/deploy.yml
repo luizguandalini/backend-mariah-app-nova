@@ -148,7 +148,16 @@ jobs:
             # Pull das últimas alterações
             echo "⬇️ Baixando alterações..."
             git pull origin main
-            
+
+            # ================================
+            # MIGRAÇÕES: garante flags de ambiente no .env.prod
+            # (o schema é controlado por migrações, não mais por synchronize)
+            # ================================
+            echo "🔧 Garantindo flags de migração no .env.prod..."
+            touch .env.prod
+            grep -q '^PROD_DB_MIGRATIONS_RUN=' .env.prod || echo 'PROD_DB_MIGRATIONS_RUN=true' >> .env.prod
+            grep -q '^PROD_DB_SYNCHRONIZE=' .env.prod || echo 'PROD_DB_SYNCHRONIZE=false' >> .env.prod
+
             # Guarda a imagem atual como backup
             echo "💾 Criando backup da imagem atual..."
             docker tag mariah-backend:latest mariah-backend:backup 2>/dev/null || true
@@ -156,11 +165,23 @@ jobs:
             # Rebuild e restart dos containers
             echo "🔨 Reconstruindo containers..."
             docker-compose -f docker-compose.prod.yml build --no-cache
-            
+
+            # ================================
+            # MIGRAÇÕES: baseline da transição (auto-protegido / idempotente)
+            # - 1ª vez num banco legado (synchronize): marca as migrações
+            #   existentes como aplicadas SEM rodar o SQL.
+            # - Depois disso: não faz nada (a tabela "migrations" já existe) e
+            #   as migrações NOVAS rodam no boot do app via migrationsRun.
+            # Roda num container one-off (sem subir rabbitmq) ANTES do down: se
+            # falhar, aborta o deploy com a versão antiga ainda no ar.
+            # ================================
+            echo "🗃️ Baseline/checagem de migrações..."
+            docker-compose -f docker-compose.prod.yml run --rm --no-deps backend node dist/database/baseline-migrations.js
+
             # Para containers antigos
             echo "⏹️ Parando containers antigos..."
             docker-compose -f docker-compose.prod.yml down
-            
+
             # Sobe novos containers
             echo "▶️ Iniciando novos containers..."
             docker-compose -f docker-compose.prod.yml up -d

@@ -1,3 +1,4 @@
+import { join } from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -46,7 +47,15 @@ import { KanbanModule } from './kanban/kanban.module';
         const dbUsername = getConfig('DB_USERNAME');
         const dbPassword = getConfig('DB_PASSWORD');
         const dbDatabase = getConfig('DB_DATABASE');
-        const dbSynchronize = getConfig('DB_SYNCHRONIZE') === 'true' || (!isProduction && getConfig('DB_SYNCHRONIZE') === '');
+        let dbSynchronize = getConfig('DB_SYNCHRONIZE') === 'true' || (!isProduction && getConfig('DB_SYNCHRONIZE') === '');
+
+        // Rodar migrações automaticamente no boot quando DB_MIGRATIONS_RUN=true.
+        // synchronize e migrationsRun NUNCA devem rodar juntos (um anula o sentido
+        // do outro): se migrações estão ligadas, forçamos synchronize=false.
+        const runMigrations = getConfig('DB_MIGRATIONS_RUN') === 'true';
+        if (runMigrations) {
+          dbSynchronize = false;
+        }
 
         // SSL: por padrão, ligado em produção (RDS exige) e desligado em dev
         // (Postgres local no Docker não fala SSL). Pode ser forçado via
@@ -55,7 +64,7 @@ import { KanbanModule } from './kanban/kanban.module';
         const useSsl = dbSslRaw === '' ? isProduction : dbSslRaw === 'true';
 
         // Log da configuração (sem dados sensíveis)
-        console.log(`📊 Banco de dados: ${dbHost}:${dbPort} (${isProduction ? 'PRODUÇÃO' : 'DESENVOLVIMENTO'}) - Sync: ${dbSynchronize} - SSL: ${useSsl}`);
+        console.log(`📊 Banco de dados: ${dbHost}:${dbPort} (${isProduction ? 'PRODUÇÃO' : 'DESENVOLVIMENTO'}) - Sync: ${dbSynchronize} - Migrations: ${runMigrations} - SSL: ${useSsl}`);
 
         return {
           type: 'postgres',
@@ -67,6 +76,10 @@ import { KanbanModule } from './kanban/kanban.module';
           autoLoadEntities: true,
           // NUNCA true em produção sem intenção!
           synchronize: dbSynchronize,
+          // Migrações compiladas (dist/migrations/*.js). Em ts elas ficam em
+          // src/migrations e são versionadas via npm run migration:generate.
+          migrations: [join(__dirname, 'migrations', '*{.js,.ts}')],
+          migrationsRun: runMigrations,
           // Em prod, só loga erros; em dev, loga tudo
           logging: isProduction ? ['error'] : true,
           ssl: useSsl ? { rejectUnauthorized: false } : false,
