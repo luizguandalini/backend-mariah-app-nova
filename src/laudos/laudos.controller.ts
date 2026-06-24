@@ -81,14 +81,22 @@ export class LaudosController {
   @ApiQuery({ name: 'page', required: false, description: 'Número da página (padrão: 1)' })
   @ApiQuery({ name: 'limit', required: false, description: 'Quantidade por página (padrão: 10)' })
   @ApiQuery({ name: 'status', required: false, description: 'Filtrar por status do laudo' })
+  @ApiQuery({ name: 'search', required: false, description: 'Buscar por endereço (rua, bairro, cidade, etc.)' })
   @ApiResponse({ status: 200, description: 'Lista de laudos retornada com sucesso' })
   async findMyLaudos(
     @CurrentUser() user: any,
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 10,
     @Query('status') status?: string,
+    @Query('search') search?: string,
   ): Promise<PaginatedLaudosResult> {
-    return await this.laudosService.findByUsuario(user.id, Number(page), Number(limit), status);
+    return await this.laudosService.findByUsuario(
+      user.id,
+      Number(page),
+      Number(limit),
+      status,
+      search,
+    );
   }
 
   @Get()

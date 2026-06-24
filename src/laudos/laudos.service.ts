@@ -724,36 +724,85 @@ export class LaudosService {
     page: number = 1,
     limit: number = 10,
     status?: string,
+    search?: string,
   ): Promise<PaginatedLaudosResult> {
     const sanitizedPage = Math.max(1, Number(page) || 1);
     const sanitizedLimit = Math.max(1, Math.min(100, Number(limit) || 10));
     const statusFilter = this.parseStatusFilter(status);
-    const where = statusFilter ? { usuarioId, status: statusFilter } : { usuarioId };
+    const searchTerm = this.parseSearchTerm(search);
 
-    const [laudos, total] = await this.laudoRepository.findAndCount({
-      where,
-      order: { createdAt: 'DESC' },
-      skip: (sanitizedPage - 1) * sanitizedLimit,
-      take: sanitizedLimit,
-    });
+    const query = this.laudoRepository
+      .createQueryBuilder('laudo')
+      .where('laudo.usuario_id = :usuarioId', { usuarioId });
 
-    if (laudos.length === 0) {
+    if (statusFilter) {
+      query.andWhere('laudo.status = :status', { status: statusFilter });
+    }
+
+    if (searchTerm) {
+      // Busca por endereço (rua, número, bairro, cidade, estado, cep, complemento
+      // e o endereço consolidado). ILIKE = case-insensitive no Postgres.
+      query.andWhere(
+        `(
+          laudo.endereco ILIKE :search
+          OR laudo.rua ILIKE :search
+          OR laudo.numero ILIKE :search
+          OR laudo.complemento ILIKE :search
+          OR laudo.bairro ILIKE :search
+          OR laudo.cidade ILIKE :search
+          OR laudo.estado ILIKE :search
+          OR laudo.cep ILIKE :search
+        )`,
+        { search: `%${searchTerm}%` },
+      );
+    }
+
+    // Conta primeiro (barato) e trava a página no total real, para uma página
+    // absurda (ex.: page=99999999) não gerar um OFFSET enorme no banco.
+    const total = await query.getCount();
+    const lastPage = total === 0 ? 0 : Math.ceil(total / sanitizedLimit);
+    const safePage = lastPage === 0 ? 1 : Math.min(sanitizedPage, lastPage);
+
+    if (total === 0) {
       return {
         data: [],
         total,
-        page: sanitizedPage,
+        page: safePage,
         lastPage: 0,
       };
     }
+
+    const laudos = await query
+      .orderBy('laudo.created_at', 'DESC')
+      .skip((safePage - 1) * sanitizedLimit)
+      .take(sanitizedLimit)
+      .getMany();
 
     const statsMap = await this.getLaudoImageStatsMap(laudos.map((l) => l.id));
 
     return {
       data: laudos.map((l) => this.mapLaudoListItem(l, statsMap)),
       total,
-      page: sanitizedPage,
-      lastPage: Math.ceil(total / sanitizedLimit),
+      page: safePage,
+      lastPage,
     };
+  }
+
+  private parseSearchTerm(search?: string): string | undefined {
+    if (!search) {
+      return undefined;
+    }
+
+    // Limita o tamanho antes de qualquer processamento, para um payload gigante
+    // não consumir CPU/memória à toa (o maior campo pesquisável tem 500 chars).
+    const trimmed = String(search).slice(0, 100).trim().replace(/\s+/g, ' ');
+
+    if (trimmed.length < 2) {
+      return undefined;
+    }
+
+    // Escapa curingas do LIKE para o termo ser tratado como texto literal.
+    return trimmed.replace(/[\\%_]/g, (char) => `\\${char}`);
   }
 
   private parseStatusFilter(status?: string): StatusLaudo | undefined {
