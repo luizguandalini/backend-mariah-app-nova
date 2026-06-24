@@ -701,7 +701,7 @@ export class LaudosService {
     }
 
     const [laudos, total] = await query
-      .orderBy('laudo.created_at', 'DESC')
+      .orderBy('laudo.createdAt', 'DESC')
       .skip((sanitizedPage - 1) * sanitizedLimit)
       .take(sanitizedLimit)
       .getManyAndCount();
@@ -779,7 +779,7 @@ export class LaudosService {
     }
 
     const laudos = await query
-      .orderBy('laudo.created_at', 'DESC')
+      .orderBy('laudo.createdAt', 'DESC')
       .skip((safePage - 1) * sanitizedLimit)
       .take(sanitizedLimit)
       .getMany();
