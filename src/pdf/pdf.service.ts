@@ -64,8 +64,6 @@ const LOGO_CAPA_DEFAULT = {
 };
 
 type PdfConfig = {
-
-type PdfConfig = {
   margemPagina: number;
   espacamentoHorizontal: number;
   espacamentoVertical: number;
@@ -680,6 +678,7 @@ export class PdfService {
         .div-metodologia { margin-top: 17px; }
         .div-metodologia > h1 { font-size: 14px; border-bottom: solid #c0c0c0 1px; margin: 0; padding-bottom: 2px; font-weight: 700; }
         .div-metodologia > p { font-weight: 400; font-size: 16px; text-align: justify; margin: 10px 0; line-height: 1.4; }
+        .div-metodologia-periodica > p { font-weight: 300; font-size: 13px; line-height: 1.3; }
 
         /* TERMOS & AMBIENTES */
         .termos-gerais h2 { font-size: 14px; font-weight: 700; border-bottom: 1px solid #c0c0c0; padding-bottom: 4px; margin-bottom: 15px; text-transform: uppercase; }
@@ -904,7 +903,7 @@ export class PdfService {
                 </div>
             </div>
             
-            <div class="div-metodologia">
+            <div class="div-metodologia ${tipoVistoria === 'periódica' || tipoVistoria === 'periodica' ? 'div-metodologia-periodica' : ''}">
                 <h1>METODOLOGIA</h1>
                 ${textosMetodologia.map((t) => `<p>${this.escapeHtml(t)}</p>`).join('')}
             </div>
