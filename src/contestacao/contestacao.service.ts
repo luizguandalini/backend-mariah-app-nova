@@ -331,6 +331,19 @@ export class ContestacaoService {
     return getSignedUrl(this.s3Client, command, { expiresIn: 3600 });
   }
 
+  /**
+   * Contagem leve (sem carregar URLs) das imagens de contestação de um
+   * laudo. Usado pelo `getImagensPdfPaginadas` para devolver a informação
+   * de "quantas páginas extras de Registros Complementares existem" no
+   * mesmo round-trip da consulta de imagens do laudo. Sem isso, o
+   * frontend precisava de uma segunda chamada (`/contestacao/laudos/:id`)
+   * só para descobrir essa contagem — visível como delay no `totalPaginas`
+   * exibido no preview.
+   */
+  async countContestacaoImagens(laudoId: string): Promise<number> {
+    return this.contestacaoImagemRepository.count({ where: { laudoId } });
+  }
+
   // ========== LIMPEZA (chamado por outros módulos) ==========
 
   async deleteContestacaoImagensByLaudo(laudoId: string): Promise<void> {

@@ -21,5 +21,17 @@ export interface ImagensPdfResponseDto {
     totalPages: number;
     totalImages: number;
     imagesPerPage: number;
+    /**
+     * Quantidade de imagens vinculadas aos Registros Complementares
+     * (contestação) deste laudo. Juntas com `contestacaoRealizada`, permitem
+     * ao frontend calcular o total de páginas do preview em UMA ida ao
+     * servidor, sem precisar de uma chamada extra para `/contestacao/laudos/:id`
+     * apenas para descobrir se há páginas extras.
+     *
+     * Mesma regra do backend de PDF: 9 fotos por página (grid 3x3).
+     */
+    contestacaoImagesCount: number;
+    /** Flag que indica se a contestação já foi enviada (travada). */
+    contestacaoRealizada: boolean;
   };
 }

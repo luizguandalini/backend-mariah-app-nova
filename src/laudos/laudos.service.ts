@@ -1299,21 +1299,31 @@ export class LaudosService {
 
     const ambientesNomesValidos = (laudo.ambientesWeb || []).map((a) => a.nomeAmbiente);
 
-    // Buscar TODAS as imagens ordenadas por ambiente e ordem
+    // Paraleliza o lookup das imagens com a contagem da contestação.
+    // Antes era sequencial: imagens (I/O) -> depois contestação (outro I/O).
+    // Como não há dependência entre eles, podemos disparar juntos. O
+    // `contestacaoImagesCount` é uma contagem leve (sem carregar URLs
+    // assinadas) — exatamente o que o frontend precisa para somar as
+    // páginas de Registros Complementares ao totalPaginas sem disparar
+    // uma segunda chamada de rede ao carregar o preview.
+    const [todasImagens, contestacaoImagesCount] = await Promise.all([
+      this.imagemRepository.find({
+        where: { laudoId },
+        order: {
+          ambiente: 'ASC',
+          ordem: 'ASC',
+        },
+      }),
+      this.contestacaoService.countContestacaoImagens(laudoId),
+    ]);
+
     // mas apenas anexar as que constam ativamente no JSON de ambientes
-    let todasImagens = await this.imagemRepository.find({
-      where: { laudoId },
-      order: {
-        ambiente: 'ASC',
-        ordem: 'ASC',
-      },
-    });
+    const todasImagensFiltradas =
+      ambientesNomesValidos.length > 0
+        ? todasImagens.filter((img) => ambientesNomesValidos.includes(img.ambiente))
+        : todasImagens;
 
-    if (ambientesNomesValidos.length > 0) {
-      todasImagens = todasImagens.filter((img) => ambientesNomesValidos.includes(img.ambiente));
-    }
-
-    if (todasImagens.length === 0) {
+    if (todasImagensFiltradas.length === 0) {
       return {
         data: [],
         meta: {
@@ -1321,6 +1331,11 @@ export class LaudosService {
           totalPages: 0,
           totalImages: 0,
           imagesPerPage: limit,
+          // Sem fotos no laudo, mas ainda devolvemos os campos de
+          // contestação para que o frontend consiga renderizar páginas
+          // de Registros Complementares (se houver) sem segunda chamada.
+          contestacaoImagesCount,
+          contestacaoRealizada: !!laudo.contestacaoRealizada,
         },
       };
     }
@@ -1330,7 +1345,7 @@ export class LaudosService {
     let numeroAmbienteAtual = 0;
     let ambienteAnterior: string | null = null;
 
-    todasImagens.forEach((img) => {
+    todasImagensFiltradas.forEach((img) => {
       if (img.ambiente !== ambienteAnterior) {
         numeroAmbienteAtual++;
         ambientesMap.set(img.ambiente, {
@@ -1343,7 +1358,7 @@ export class LaudosService {
 
     // Aplicar paginação
     const inicio = (page - 1) * limit;
-    const imagensPaginadas = todasImagens.slice(inicio, inicio + limit);
+    const imagensPaginadas = todasImagensFiltradas.slice(inicio, inicio + limit);
 
     // Resetar contadores para numeração correta
     const contadoresPorAmbiente = new Map<string, number>();
@@ -1352,8 +1367,8 @@ export class LaudosService {
     });
 
     // Processar todas as imagens até a página atual para contagem correta
-    for (let i = 0; i < inicio + imagensPaginadas.length && i < todasImagens.length; i++) {
-      const img = todasImagens[i];
+    for (let i = 0; i < inicio + imagensPaginadas.length && i < todasImagensFiltradas.length; i++) {
+      const img = todasImagensFiltradas[i];
       const contadorAtual = contadoresPorAmbiente.get(img.ambiente) || 0;
       contadoresPorAmbiente.set(img.ambiente, contadorAtual + 1);
 
@@ -1371,7 +1386,7 @@ export class LaudosService {
       const posDaImagemNoArray = inicio + index;
       let contadorImagemNoAmbiente = 0;
       for (let i = 0; i <= posDaImagemNoArray; i++) {
-        if (todasImagens[i].ambiente === img.ambiente) {
+        if (todasImagensFiltradas[i].ambiente === img.ambiente) {
           contadorImagemNoAmbiente++;
         }
       }
@@ -1394,9 +1409,11 @@ export class LaudosService {
       data: imagensComNumeracao,
       meta: {
         currentPage: page,
-        totalPages: Math.ceil(todasImagens.length / limit),
-        totalImages: todasImagens.length,
+        totalPages: Math.ceil(todasImagensFiltradas.length / limit),
+        totalImages: todasImagensFiltradas.length,
         imagesPerPage: limit,
+        contestacaoImagesCount,
+        contestacaoRealizada: !!laudo.contestacaoRealizada,
       },
     };
   }
