@@ -201,11 +201,10 @@ export class ContestacaoService {
       );
     }
 
-    if (laudo.status !== StatusLaudo.CONCLUIDO && !laudo.pdfUrl) {
-      throw new BadRequestException(
-        'Os registros complementares só podem ser enviados após a conclusão do laudo.',
-      );
-    }
+    // A regra de "só após conclusão" foi removida — o frontend já trata o
+    // gating via smartStatus + badge. A única trava real é a de UMA
+    // contestação por laudo (checada acima). Manter a consistência com
+    // ensurePodeContestar.
 
     // Pega TODAS as imagens já confirmadas neste laudo (não confiamos na lista
     // do cliente — o backend é dono da verdade).
@@ -395,11 +394,10 @@ export class ContestacaoService {
         'Os registros complementares deste laudo já foram enviados. Apenas um envio é permitido por laudo.',
       );
     }
-    if (laudo.status !== StatusLaudo.CONCLUIDO && !laudo.pdfUrl) {
-      throw new BadRequestException(
-        'Os registros complementares só podem ser enviados após a conclusão do laudo.',
-      );
-    }
+    // Não exigimos status=CONCLUIDO ou pdfUrl aqui: o frontend mostra o laudo
+    // como "concluído" via smartStatus (heurística que também considera
+    // laudos parados ou com PDF parcialmente gerado). A única restrição real
+    // é a de UMA contestação por laudo — essa checagem acima cobre isso.
   }
 
   private normalizarOrdem(ordem?: number): number {
