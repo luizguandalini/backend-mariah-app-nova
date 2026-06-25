@@ -107,6 +107,14 @@ export class SchemaCompatibilityService implements OnApplicationBootstrap {
       column: 'logo_capa_altura',
       definition: 'real',
     },
+    {
+      // Cobre bancos onde o baseline marcou a 1780200000000 sem executar o
+      // SQL (legado do synchronize) e a tabela contestacao_imagens existe
+      // sem a coluna `legenda`.
+      table: 'contestacao_imagens',
+      column: 'legenda',
+      definition: "varchar(500) NOT NULL DEFAULT ''",
+    },
   ];
 
   constructor(private readonly dataSource: DataSource) {}
