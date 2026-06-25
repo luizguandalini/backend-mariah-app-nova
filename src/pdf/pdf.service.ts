@@ -524,6 +524,14 @@ export class PdfService {
     return this.getMetodologiaPadrao(laudo.tipoVistoria);
   }
 
+  /**
+   * Renderiza a seção "Registros Complementares" como UMA página dedicada
+   * (com o título "REGISTROS COMPLEMENTARES" no topo e o grid de fotos
+   * abaixo, com legendas individuais). Se houver muitas fotos e não
+   * couberem em uma página A4, abre quantas páginas extras forem necessárias.
+   *
+   * Vem sempre ANTES da página de assinaturas, depois do relatório.
+   */
   private async getContestacaoHtml(laudoId: string): Promise<string> {
     try {
       const contestacao = await this.contestacaoService.getContestacaoInterno(laudoId);
@@ -535,49 +543,32 @@ export class PdfService {
         return '';
       }
 
+      // Ordena por ordem (ASC) e desempata por id, igual ao resto do sistema.
+      const imagensOrdenadas = [...contestacao.imagens].sort((a, b) => {
+        if (a.ordem !== b.ordem) return a.ordem - b.ordem;
+        return a.id.localeCompare(b.id);
+      });
+
+      const total = imagensOrdenadas.length;
       const data = contestacao.contestacaoData
         ? new Date(contestacao.contestacaoData).toLocaleDateString('pt-BR')
         : '';
 
-      const isCompacto = false; // usa layout detalhado (mesmo grid das fotos)
-      const PHOTOS_PER_PAGE = isCompacto ? 15 : 12;
+      // Layout detalhado: até 9 fotos por página (grid 3x3) com legenda.
+      // Cabeçalho da primeira página consome ~80px do A4, deixando o grid.
+      const FOTOS_POR_PAGINA = 9;
 
-      // Grid de fotos (mesmo padrão visual da galeria principal)
-      const fotosHtml = this.renderContestacaoPhotosGrid(
-        contestacao.imagens,
-        PHOTOS_PER_PAGE,
-        isCompacto,
-      );
-
-      // Cada página precisa ser um .page-container para que o rodapé e a
-      // quebra de página funcionem iguais ao resto do PDF.
-      const paginas = fotosHtml.match(
-        /<div class="page-container[\s\S]*?<\/div>\s*<\/div>/g,
-      );
-      const totalPaginas = paginas ? paginas.length : 1;
-
-      // Primeira página: cabeçalho + data + (primeira página de fotos).
-      // Demais páginas: só fotos.
-      const primeiraPagina = paginas![0];
-      let corpo = `
-        <div class="page-container page-standard contestacao-primeira-pagina">
-          <div style="height: 35px;"></div>
-          <h2 class="contestacao-titulo">REGISTROS COMPLEMENTARES</h2>
-          ${data
-            ? `<div class="contestacao-data">Realizado em ${data}</div>`
-            : ''}
-          ${primeiraPagina}
-        </div>
-      `;
-
-      if (totalPaginas > 1) {
-        corpo += paginas!
-          .slice(1)
-          .map((p) => p)
-          .join('<div class="page-break"></div>');
+      const paginas: string[] = [];
+      for (let i = 0; i < imagensOrdenadas.length; i += FOTOS_POR_PAGINA) {
+        const lote = imagensOrdenadas.slice(i, i + FOTOS_POR_PAGINA);
+        const primeiraPagina = i === 0;
+        const headerHtml = primeiraPagina ? this.renderContestacaoCabecalho(total, data) : '';
+        paginas.push(this.renderContestacaoPaginaFotos(headerHtml, lote));
       }
 
-      return corpo + '<div class="page-break"></div>';
+      return (
+        paginas.join('<div class="page-break"></div>') + '<div class="page-break"></div>'
+      );
     } catch (err) {
       this.logger.error('Falha ao renderizar contestação no PDF', err as Error);
       return '';
@@ -585,59 +576,51 @@ export class PdfService {
   }
 
   /**
-   * Renderiza o grid de fotos da contestação (reaproveitando o estilo visual
-   * da galeria principal). Como cada imagem é cadastrada com legenda
-   * OBRIGATÓRIA, ela aparece como rótulo principal.
+   * Renderiza o cabeçalho da primeira página de Registros Complementares.
+   * Aparece só na primeira página; nas subsequentes vai direto pro grid.
    */
-  private renderContestacaoPhotosGrid(
-    imagens: {
-      id: string;
-      s3Key: string;
-      url: string;
-      ordem: number;
-      legenda: string;
-    }[],
-    perPage: number,
-    isCompacto: boolean,
-  ): string {
-    if (!imagens || imagens.length === 0) return '';
-    const html: string[] = [];
-
-    for (let i = 0; i < imagens.length; i += perPage) {
-      const pagePhotos = imagens.slice(i, i + perPage);
-      html.push(`
-        <div class="page-container ${isCompacto ? 'page-compacta' : 'page-dynamic'}">
-          <div class="grid-fotos ${isCompacto ? 'grid-fotos-compacta' : ''}">
-            ${pagePhotos
-              .map((img) => {
-                const legenda = (img.legenda || '').trim();
-                if (isCompacto) {
-                  return `
-                    <div class="foto-card">
-                      <div class="foto-container-compacta">
-                        <img src="${img.url}" class="foto-img-compacta" />
-                      </div>
-                      <div class="foto-legenda-compacta" title="${this.escapeHtml(legenda)}">
-                        <span>${this.escapeHtml(legenda)}</span>
-                      </div>
-                    </div>
-                  `;
-                }
-                return `
-                  <div class="foto-card">
-                    <div class="foto-container">
-                      <img src="${img.url}" class="foto-img" />
-                    </div>
-                    <div class="foto-legenda">${this.escapeHtml(legenda)}</div>
-                  </div>
-                `;
-              })
-              .join('')}
-          </div>
+  private renderContestacaoCabecalho(total: number, data: string): string {
+    const plural = total === 1 ? '1 foto anexada' : `${total} fotos anexadas`;
+    return `
+      <div class="contestacao-header">
+        <h1 class="contestacao-header-titulo">REGISTROS COMPLEMENTARES</h1>
+        <div class="contestacao-header-meta">
+          ${data ? `<span>Realizado em ${data}</span>` : ''}
+          <span>${plural}</span>
         </div>
-      `);
-    }
-    return html.join('');
+      </div>
+    `;
+  }
+
+  /**
+   * Renderiza uma página do bloco de Registros Complementares: cabeçalho
+   * (opcional, só na primeira) + grid 3x3 de fotos com legenda.
+   */
+  private renderContestacaoPaginaFotos(
+    headerHtml: string,
+    lote: { id: string; s3Key: string; url: string; ordem: number; legenda: string }[],
+  ): string {
+    return `
+      <div class="page-container page-standard contestacao-pagina">
+        <div style="height: 35px;"></div>
+        ${headerHtml}
+        <div class="contestacao-grid">
+          ${lote
+            .map((img) => {
+              const legenda = (img.legenda || '').trim();
+              return `
+                <div class="contestacao-card">
+                  <div class="contestacao-card-foto">
+                    <img src="${img.url}" alt="${this.escapeHtml(legenda)}" />
+                  </div>
+                  <div class="contestacao-card-legenda">${this.escapeHtml(legenda)}</div>
+                </div>
+              `;
+            })
+            .join('')}
+        </div>
+      </div>
+    `;
   }
 
   private getSignaturesHtml(laudo: Laudo, config: PdfConfig): string {
@@ -935,13 +918,16 @@ export class PdfService {
         .testemunha-linha strong { margin-right: 5px; min-width: 40px; }
         .testemunha-valor { font-family: "Roboto", sans-serif; font-size: 11px; }
 
-        /* REGISTROS COMPLEMENTARES (CONTESTAÇÃO) */
-        .contestacao-titulo { font-size: 14px; font-weight: 700; text-transform: uppercase; border-bottom: 2px solid #000; padding-bottom: 4px; margin: 0 0 8px 0; }
-        .contestacao-data { font-size: 10px; color: #555; margin: 0 0 14px 0; }
-        .contestacao-texto { font-size: 12px; line-height: 1.6; text-align: justify; margin: 0 0 10px 0; color: #000; }
-        .contestacao-texto-vazio { color: #777; font-style: italic; }
-        .contestacao-rodape-bloco { margin-top: 24px; padding-top: 8px; border-top: 1px dashed #999; font-size: 10px; color: #555; line-height: 1.5; text-align: justify; }
-        .contestacao-primeira-pagina .grid-fotos { margin-top: 16px; }
+        /* REGISTROS COMPLEMENTARES (CONTESTAÇÃO) — página dedicada */
+        .contestacao-pagina { padding: 20mm; }
+        .contestacao-header { border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 14px; }
+        .contestacao-header-titulo { font-size: 18px; font-weight: 700; text-transform: uppercase; margin: 0; letter-spacing: 0.5px; }
+        .contestacao-header-meta { display: flex; gap: 16px; font-size: 11px; color: #555; margin-top: 4px; }
+        .contestacao-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 4px; }
+        .contestacao-card { break-inside: avoid; }
+        .contestacao-card-foto { border: 1px solid #9ca3af; overflow: hidden; margin-bottom: 3px; }
+        .contestacao-card-foto img { width: 100%; height: 200px; object-fit: cover; object-position: center; display: block; }
+        .contestacao-card-legenda { font-size: 9px; line-height: 1.35; text-align: left; color: #000; padding: 0 2px; }
      `;
   }
 
