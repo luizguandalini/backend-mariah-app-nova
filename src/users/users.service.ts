@@ -14,6 +14,7 @@ import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { UpdateConfiguracoesPdfDto } from './dto/update-configuracoes-pdf.dto';
 import { UserRole } from './enums/user-role.enum';
 import { UploadsService } from '../uploads/uploads.service';
+import { ContestacaoService } from '../contestacao/contestacao.service';
 
 @Injectable()
 export class UsersService {
@@ -35,6 +36,7 @@ export class UsersService {
     @InjectRepository(WebLoginTicket)
     private readonly webLoginTicketRepository: Repository<WebLoginTicket>,
     private readonly uploadsService: UploadsService,
+    private readonly contestacaoService: ContestacaoService,
   ) {}
 
   async findAll(
@@ -202,6 +204,17 @@ export class UsersService {
       } catch (error) {
         this.logger.error(`  ⚠️ Erro ao deletar imagens S3 do laudo ${laudoId}:`, error);
         // Continua mesmo com erro no S3
+      }
+
+      // 2b. Deletar imagens de contestação do S3 (Registros Complementares)
+      try {
+        await this.contestacaoService.deleteContestacaoImagensByLaudo(laudoId);
+        this.logger.log(`  ✅ Imagens de contestação S3 do laudo ${laudoId} deletadas`);
+      } catch (error) {
+        this.logger.error(
+          `  ⚠️ Erro ao deletar imagens de contestação S3 do laudo ${laudoId}:`,
+          error,
+        );
       }
     }
 

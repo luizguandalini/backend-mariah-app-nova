@@ -20,6 +20,7 @@ import { SchemaCompatibilityService } from './database/schema-compatibility.serv
 import { Usuario } from './users/entities/usuario.entity';
 import { NotificationsModule } from './notifications/notifications.module';
 import { KanbanModule } from './kanban/kanban.module';
+import { ContestacaoModule } from './contestacao/contestacao.module';
 
 @Module({
   imports: [
@@ -101,6 +102,7 @@ import { KanbanModule } from './kanban/kanban.module';
     SystemConfigModule,
     NotificationsModule,
     KanbanModule,
+    ContestacaoModule,
   ],
   controllers: [AppController],
   providers: [AppService, DatabaseSeedService, SchemaCompatibilityService],

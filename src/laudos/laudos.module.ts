@@ -9,12 +9,14 @@ import { LaudoSection } from '../laudo-details/entities/laudo-section.entity';
 import { ImagemLaudo } from '../uploads/entities/imagem-laudo.entity';
 import { UploadsModule } from '../uploads/uploads.module';
 import { QueueModule } from '../queue/queue.module';
+import { ContestacaoModule } from '../contestacao/contestacao.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Laudo, Usuario, LaudoOption, LaudoSection, ImagemLaudo]),
     UploadsModule,
     forwardRef(() => QueueModule),
+    ContestacaoModule,
   ],
   controllers: [LaudosController],
   providers: [LaudosService],

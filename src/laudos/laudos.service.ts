@@ -24,6 +24,7 @@ import { EstrategiaConflitoAmbienteWeb } from './dto/add-ambiente-web.dto';
 
 import { UploadsService } from '../uploads/uploads.service';
 import { RabbitMQService } from '../queue/rabbitmq.service';
+import { ContestacaoService } from '../contestacao/contestacao.service';
 
 export interface PaginatedLaudosResult {
   data: LaudoListItem[];
@@ -55,6 +56,7 @@ export class LaudosService {
     private readonly imagemRepository: Repository<ImagemLaudo>,
     private readonly uploadsService: UploadsService,
     private readonly rabbitMQService: RabbitMQService,
+    private readonly contestacaoService: ContestacaoService,
   ) {}
 
   // ... (métodos existentes)
@@ -177,6 +179,14 @@ export class LaudosService {
       // Se colocarmos o S3 delete ANTES do remove do banco mas DENTRO da transaction function, se o S3 der erro (throw), a transaction do banco nem commita.
       // Porém, o S3 delete pode demorar. Vamos manter a chamada await aqui.
       await this.uploadsService.deleteImagensByLaudo(id);
+
+      // 3a. Deletar imagens de contestação do S3 (Registros Complementares).
+      // Sem isso, órfãos no bucket mesmo após o CASCADE do banco.
+      try {
+        await this.contestacaoService.deleteContestacaoImagensByLaudo(id);
+      } catch (err) {
+        console.warn('Falha ao tentar remover imagens de contestação do S3:', err);
+      }
 
       // 3b. Deletar a logo personalizada do laudo do S3 (se existir)
       if (laudo.logoPersonalizadaS3Key) {
@@ -950,6 +960,8 @@ export class LaudosService {
       longitude: laudo.longitude,
       enderecoCompletoGps: laudo.enderecoCompletoGps,
       incluirAtestado: laudo.incluirAtestado,
+      contestacaoRealizada: laudo.contestacaoRealizada,
+      contestacaoData: laudo.contestacaoData,
       createdAt: laudo.createdAt,
       updatedAt: laudo.updatedAt,
     };

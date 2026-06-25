@@ -12,6 +12,7 @@ import * as path from 'path';
 import { LaudoSection } from '../laudo-details/entities/laudo-section.entity';
 import { LaudoOption } from '../laudo-details/entities/laudo-option.entity';
 import { UsersService } from '../users/users.service';
+import { ContestacaoService } from '../contestacao/contestacao.service';
 import * as QRCode from 'qrcode';
 
 const METODOLOGIA_TEXTS = [
@@ -103,6 +104,7 @@ export class PdfService {
     private readonly uploadsService: UploadsService,
     private readonly queueGateway: QueueGateway,
     private readonly usersService: UsersService,
+    private readonly contestacaoService: ContestacaoService,
   ) {}
 
   /**
@@ -415,6 +417,9 @@ export class PdfService {
     const infoPage = this.getInfoPageHtml(laudo, ambientes, config);
     const photos = this.getPhotosHtml(imagens, laudo, config);
     const report = await this.getReportHtml(laudo, sections);
+    // Registros complementares (contestação) — quando realizada, é renderizada
+    // antes da página de assinaturas.
+    const contestacaoHtml = await this.getContestacaoHtml(laudo.id);
     const signatures = this.getSignaturesHtml(laudo, config);
 
     return `
@@ -435,6 +440,7 @@ export class PdfService {
             ${photos}
             <div class="page-break"></div>
             ${report}
+            ${contestacaoHtml}
             <div class="page-break"></div>
             ${signatures}
             <script>
@@ -516,6 +522,122 @@ export class PdfService {
       return this.splitParagrafos(config.metodologiaTexto);
     }
     return this.getMetodologiaPadrao(laudo.tipoVistoria);
+  }
+
+  private async getContestacaoHtml(laudoId: string): Promise<string> {
+    try {
+      const contestacao = await this.contestacaoService.getContestacaoInterno(laudoId);
+      if (!contestacao.contestacaoRealizada) {
+        return '';
+      }
+
+      if (!contestacao.imagens || contestacao.imagens.length === 0) {
+        return '';
+      }
+
+      const data = contestacao.contestacaoData
+        ? new Date(contestacao.contestacaoData).toLocaleDateString('pt-BR')
+        : '';
+
+      const isCompacto = false; // usa layout detalhado (mesmo grid das fotos)
+      const PHOTOS_PER_PAGE = isCompacto ? 15 : 12;
+
+      // Grid de fotos (mesmo padrão visual da galeria principal)
+      const fotosHtml = this.renderContestacaoPhotosGrid(
+        contestacao.imagens,
+        PHOTOS_PER_PAGE,
+        isCompacto,
+      );
+
+      // Cada página precisa ser um .page-container para que o rodapé e a
+      // quebra de página funcionem iguais ao resto do PDF.
+      const paginas = fotosHtml.match(
+        /<div class="page-container[\s\S]*?<\/div>\s*<\/div>/g,
+      );
+      const totalPaginas = paginas ? paginas.length : 1;
+
+      // Primeira página: cabeçalho + data + (primeira página de fotos).
+      // Demais páginas: só fotos.
+      const primeiraPagina = paginas![0];
+      let corpo = `
+        <div class="page-container page-standard contestacao-primeira-pagina">
+          <div style="height: 35px;"></div>
+          <h2 class="contestacao-titulo">REGISTROS COMPLEMENTARES</h2>
+          ${data
+            ? `<div class="contestacao-data">Realizado em ${data}</div>`
+            : ''}
+          ${primeiraPagina}
+        </div>
+      `;
+
+      if (totalPaginas > 1) {
+        corpo += paginas!
+          .slice(1)
+          .map((p) => p)
+          .join('<div class="page-break"></div>');
+      }
+
+      return corpo + '<div class="page-break"></div>';
+    } catch (err) {
+      this.logger.error('Falha ao renderizar contestação no PDF', err as Error);
+      return '';
+    }
+  }
+
+  /**
+   * Renderiza o grid de fotos da contestação (reaproveitando o estilo visual
+   * da galeria principal). Como cada imagem é cadastrada com legenda
+   * OBRIGATÓRIA, ela aparece como rótulo principal.
+   */
+  private renderContestacaoPhotosGrid(
+    imagens: {
+      id: string;
+      s3Key: string;
+      url: string;
+      ordem: number;
+      legenda: string;
+    }[],
+    perPage: number,
+    isCompacto: boolean,
+  ): string {
+    if (!imagens || imagens.length === 0) return '';
+    const html: string[] = [];
+
+    for (let i = 0; i < imagens.length; i += perPage) {
+      const pagePhotos = imagens.slice(i, i + perPage);
+      html.push(`
+        <div class="page-container ${isCompacto ? 'page-compacta' : 'page-dynamic'}">
+          <div class="grid-fotos ${isCompacto ? 'grid-fotos-compacta' : ''}">
+            ${pagePhotos
+              .map((img) => {
+                const legenda = (img.legenda || '').trim();
+                if (isCompacto) {
+                  return `
+                    <div class="foto-card">
+                      <div class="foto-container-compacta">
+                        <img src="${img.url}" class="foto-img-compacta" />
+                      </div>
+                      <div class="foto-legenda-compacta" title="${this.escapeHtml(legenda)}">
+                        <span>${this.escapeHtml(legenda)}</span>
+                      </div>
+                    </div>
+                  `;
+                }
+                return `
+                  <div class="foto-card">
+                    <div class="foto-container">
+                      <img src="${img.url}" class="foto-img" />
+                    </div>
+                    <div class="foto-legenda">${this.escapeHtml(legenda)}</div>
+                  </div>
+                `;
+              })
+              .join('')}
+          </div>
+        </div>
+      `);
+    }
+    return html.join('');
   }
 
   private getSignaturesHtml(laudo: Laudo, config: PdfConfig): string {
@@ -812,6 +934,14 @@ export class PdfService {
         .testemunha-linha { display: flex; align-items: baseline; border-bottom: 1px solid #000; font-size: 11px; padding-bottom: 2px; }
         .testemunha-linha strong { margin-right: 5px; min-width: 40px; }
         .testemunha-valor { font-family: "Roboto", sans-serif; font-size: 11px; }
+
+        /* REGISTROS COMPLEMENTARES (CONTESTAÇÃO) */
+        .contestacao-titulo { font-size: 14px; font-weight: 700; text-transform: uppercase; border-bottom: 2px solid #000; padding-bottom: 4px; margin: 0 0 8px 0; }
+        .contestacao-data { font-size: 10px; color: #555; margin: 0 0 14px 0; }
+        .contestacao-texto { font-size: 12px; line-height: 1.6; text-align: justify; margin: 0 0 10px 0; color: #000; }
+        .contestacao-texto-vazio { color: #777; font-style: italic; }
+        .contestacao-rodape-bloco { margin-top: 24px; padding-top: 8px; border-top: 1px dashed #999; font-size: 10px; color: #555; line-height: 1.5; text-align: justify; }
+        .contestacao-primeira-pagina .grid-fotos { margin-top: 16px; }
      `;
   }
 

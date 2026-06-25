@@ -10,6 +10,7 @@ import { AnalysisQueue } from '../queue/entities/analysis-queue.entity';
 import { RefreshToken } from '../auth/entities/refresh-token.entity';
 import { WebLoginTicket } from '../auth/entities/web-login-ticket.entity';
 import { UploadsModule } from '../uploads/uploads.module';
+import { ContestacaoModule } from '../contestacao/contestacao.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { UploadsModule } from '../uploads/uploads.module';
       WebLoginTicket,
     ]),
     UploadsModule,
+    ContestacaoModule,
   ],
   controllers: [UsersController],
   providers: [UsersService],

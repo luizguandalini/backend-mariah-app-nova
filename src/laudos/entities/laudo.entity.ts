@@ -187,6 +187,15 @@ export class Laudo {
   @Column({ name: 'ambientes_web', type: 'jsonb', nullable: true, default: () => "'[]'" })
   ambientesWeb: { nomeAmbiente: string; tipoAmbiente: string; ordem: number }[];
 
+  // Registros complementares (contestação) - o usuário pode enviar fotos
+  // adicionais com legenda individual APENAS UMA VEZ, depois que o laudo for
+  // concluído. O conteúdo é renderizado no PDF, antes das assinaturas.
+  @Column({ name: 'contestacao_realizada', type: 'boolean', default: false })
+  contestacaoRealizada: boolean;
+
+  @Column({ name: 'contestacao_data', type: 'timestamptz', nullable: true })
+  contestacaoData: Date | null;
+
   @CreateDateColumn({
     name: 'created_at',
     type: 'timestamptz',

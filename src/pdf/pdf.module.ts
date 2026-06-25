@@ -7,6 +7,7 @@ import { ImagemLaudo } from '../uploads/entities/imagem-laudo.entity';
 import { QueueModule } from '../queue/queue.module';
 import { UploadsModule } from '../uploads/uploads.module';
 import { UsersModule } from '../users/users.module';
+import { ContestacaoModule } from '../contestacao/contestacao.module';
 
 import { Ambiente } from '../ambientes/entities/ambiente.entity';
 import { LaudoSection } from '../laudo-details/entities/laudo-section.entity';
@@ -24,6 +25,7 @@ import { LaudoOption } from '../laudo-details/entities/laudo-option.entity';
     QueueModule, // Para acesso ao RabbitMQ e Gateway
     UploadsModule,
     UsersModule,
+    ContestacaoModule,
   ],
   providers: [PdfService, PdfProcessor],
   exports: [PdfService],
