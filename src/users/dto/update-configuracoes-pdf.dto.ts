@@ -42,6 +42,26 @@ export class UpdateConfiguracoesPdfDto {
   @IsOptional()
   @IsString()
   @MaxLength(20000)
+  metodologiaEntradaTexto?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20000)
+  metodologiaSaidaTexto?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20000)
+  metodologiaConstatacaoTexto?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20000)
+  metodologiaPeriodicaTexto?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20000)
   termosGeraisTexto?: string | null;
 
   @IsOptional()

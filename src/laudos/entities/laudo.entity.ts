@@ -67,7 +67,7 @@ export class Laudo {
 
   // Classificação
   @Column({ name: 'tipo_vistoria', type: 'varchar', length: 50, nullable: true })
-  tipoVistoria: string; // 'ENTRADA' | 'SAIDA'
+  tipoVistoria: string; // 'ENTRADA' | 'SAIDA' | 'CONSTATACAO' | 'PERIODICA'
 
   @Column({ name: 'tipo_uso', type: 'varchar', length: 200, nullable: true })
   tipoUso: string; // 'RESIDENCIAL' | 'COMERCIAL' | 'INDUSTRIAL'

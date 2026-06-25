@@ -35,6 +35,22 @@ export class ConfiguracaoPdfUsuario {
   @Column({ name: 'metodologia_texto', type: 'text', nullable: true })
   metodologiaTexto: string | null;
 
+  // Texto de METODOLOGIA customizado por tipo de vistoria. Quando preenchido,
+  // sobrescreve o padrão daquele tipo. Quando null, usa o padrão (ou o legado
+  // `metodologiaTexto` compartilhado, para manter compatibilidade com
+  // usuários que editaram o texto antes desta separação).
+  @Column({ name: 'metodologia_entrada_texto', type: 'text', nullable: true })
+  metodologiaEntradaTexto: string | null;
+
+  @Column({ name: 'metodologia_saida_texto', type: 'text', nullable: true })
+  metodologiaSaidaTexto: string | null;
+
+  @Column({ name: 'metodologia_constatacao_texto', type: 'text', nullable: true })
+  metodologiaConstatacaoTexto: string | null;
+
+  @Column({ name: 'metodologia_periodica_texto', type: 'text', nullable: true })
+  metodologiaPeriodicaTexto: string | null;
+
   @Column({ name: 'termos_gerais_texto', type: 'text', nullable: true })
   termosGeraisTexto: string | null;
 

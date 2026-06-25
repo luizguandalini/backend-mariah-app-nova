@@ -30,6 +30,23 @@ const METODOLOGIA_SAIDA_TEXTS = [
   'Os registros encontrados como irregularidades ou avarias são indicados neste laudo de vistoria pela menção da palavra "APONTAMENTO".',
 ];
 
+const METODOLOGIA_CONSTATACAO_TEXTS = [
+  'As partes recebem o laudo para averiguação de diferenças que possam ter surgido no curso da locação, cabendo ao LOCADOR e LOCATÁRIO avaliarem e ajustarem possíveis acertos apontados pelos registros fotográficos, seja de benfeitorias ou irregularidades.',
+  'A vistoria foi realizada através de uma análise meticulosa baseando-se em procedimentos técnicos específicos, onde a equipe responsável pela vistoria empregou critérios rigorosos para avaliar todos os aspectos relevantes, desde apontamentos estruturais visíveis, até pequenos detalhes construtivos, buscando registrar, de forma clara e objetiva, por textos e imagens, qualquer apontamento ou irregularidade, garantindo uma abordagem sistemática e imparcial, onde as fotos de cada ambiente trazem todos os ângulos necessários de paredes, chãos, tetos, portas, janelas entre outros que componham o imóvel e suas instalações, sendo agrupadas e numeradas por ambientes, o qual, mesmo não estando relacionado algum apontamento em forma de texto poderá ser identificado através da interpretação dos registros fotográficos.',
+  'Este relatório visa fornecer um documento fiel e imparcial para dirimir eventuais dúvidas entre as partes interessadas.',
+];
+
+const METODOLOGIA_PERIODICA_TEXTS = [
+  'O presente laudo foi elaborado com a finalidade de verificar eventuais ocorrências surgidas durante o período de locação, especialmente aquelas que apresentem divergências em relação às condições originalmente pactuadas ou ao estado de conservação constatado no ato da entrega do imóvel. Tais divergências podem envolver benfeitorias executadas ou irregularidades identificadas, devidamente registradas neste documento, o qual caberá ao LOCADOR avaliar referências para atribui-la a preexistente ou pós-ocupação.',
+  'A metodologia aplicada fundamentou-se em uma inspeção técnica detalhada de todos os ambientes do imóvel, acompanhada de registro fotográfico sistemático, realizada em ordem cronológica, assegurando rastreabilidade e fidedignidade das informações e foi elaborado de maneira técnica por um especialista qualificado, que examinou critérios específicos para avaliar todos os aspectos relevantes, desde apontamentos estruturais aparentes até pequenos detalhes construtivos e acessórios presentes no imóvel registrando de forma clara e objetiva, por meio de textos e imagens, qualquer apontamento ou irregularidade.',
+  'Este relatório tem como finalidade servir como instrumento imparcial e documental, proporcionando segurança jurídica às partes e auxiliando na solução de eventuais controvérsias.',
+  'O material fotográfico está organizado da seguinte forma:',
+  '· Registros fotográficos de todos os ambientes, em ordem cronológica dos pontos mais representativos dos ambientes que compõem o imóvel.',
+  '· Fotobook: As fotografias contemplam múltiplos ângulos de cada ambiente, de modo a garantir uma visão abrangente e técnica do imóvel. Além disso, todas as imagens encontram-se disponíveis para download por meio do QR Code inserido neste documento.',
+  '· Descrição foto a foto, indicando o ponto avaliado e apontando eventuais divergências;',
+  'Este laudo não emprega termos subjetivos, como "bom", "regular" ou "ótimo" estado, nas análises. A descrição foi construída de forma objetiva, baseada exclusivamente em fatos observáveis, com o objetivo de evitar interpretações divergentes que possam surgir de perspectivas pessoais e garantir que as informações registradas sejam precisas e imparciais.',
+];
+
 const TERMOS_GERAIS_TEXTS = [
   'É obrigação do locatário o reparo imediato dos danos causados por si mesmo ou por terceiros durante a vigência do contrato de locação, cabendo ao locatário restituir o imóvel no mesmo estado em que o recebeu, de acordo com este laudo de vistoria, comprometendo-se com o zelo e promovendo a manutenção preventiva do mesmo e de seus equipamentos porventura existentes, em especial, equipamentos elétricos, quadros de distribuição de energia, instalações hidráulicas, elétricas, sistemas de ar, sistema de aquecimento em geral ou danos decorrentes do mau uso, tais como: danos ao encanamento provocados pelo descarte de objetos em ralos, em vasos sanitários, conservação dos móveis ou de bens de razão estrutural, como portas, janelas, esquadrias, pias, gabinetes, entre outros.',
   'O locatário será isento de responsabilidade quanto aos desgastes naturais decorrentes do uso normal e zeloso do imóvel, desde que tais condições sejam compatíveis com o período de locação e não decorram de negligência, mau uso ou ausência de manutenção regular. Eventuais danos que ultrapassem o desgaste esperado ou sejam causados por uso inadequado serão de responsabilidade do locatário, firmando compromisso do uso zeloso pelo período em que se der início a locação até a efetiva devolução das chaves.',
@@ -47,11 +64,19 @@ const LOGO_CAPA_DEFAULT = {
 };
 
 type PdfConfig = {
+
+type PdfConfig = {
   margemPagina: number;
   espacamentoHorizontal: number;
   espacamentoVertical: number;
   modoPreviewPdf?: 'detalhado' | 'compacto';
   metodologiaTexto?: string | null;
+  // Texto de METODOLOGIA customizado por tipo de vistoria. Tem prioridade sobre
+  // `metodologiaTexto` (legado compartilhado).
+  metodologiaEntradaTexto?: string | null;
+  metodologiaSaidaTexto?: string | null;
+  metodologiaConstatacaoTexto?: string | null;
+  metodologiaPeriodicaTexto?: string | null;
   termosGeraisTexto?: string | null;
   assinaturaTexto?: string | null;
   // Logo da capa
@@ -146,6 +171,11 @@ export class PdfService {
         espacamentoVertical: userConfig.espacamentoVertical ?? 15,
         modoPreviewPdf: modoPdf,
         metodologiaTexto: userConfig.metodologiaTexto ?? null,
+        metodologiaEntradaTexto: userConfig.metodologiaEntradaTexto ?? null,
+        metodologiaSaidaTexto: userConfig.metodologiaSaidaTexto ?? null,
+        metodologiaConstatacaoTexto:
+          userConfig.metodologiaConstatacaoTexto ?? null,
+        metodologiaPeriodicaTexto: userConfig.metodologiaPeriodicaTexto ?? null,
         termosGeraisTexto: userConfig.termosGeraisTexto ?? null,
         assinaturaTexto: userConfig.assinaturaTexto ?? null,
         mostrarLogoCapa: userConfig.mostrarLogoCapa ?? true,
@@ -452,8 +482,42 @@ export class PdfService {
 
   private getMetodologiaPadrao(tipoVistoria: string): string[] {
     const normalized = (tipoVistoria || '').toLowerCase();
-    const isSaida = normalized === 'saída' || normalized === 'saida';
-    return isSaida ? METODOLOGIA_SAIDA_TEXTS : METODOLOGIA_TEXTS;
+    if (normalized === 'saída' || normalized === 'saida') {
+      return METODOLOGIA_SAIDA_TEXTS;
+    }
+    if (normalized === 'constatação' || normalized === 'constatacao') {
+      return METODOLOGIA_CONSTATACAO_TEXTS;
+    }
+    if (normalized === 'periódica' || normalized === 'periodica') {
+      return METODOLOGIA_PERIODICA_TEXTS;
+    }
+    return METODOLOGIA_TEXTS;
+  }
+
+  /**
+   * Resolve o texto de METODOLOGIA a usar no PDF do `laudo`, considerando:
+   * 1) override por tipo vindo do `PdfConfig` (campo metodologia<Tipo>Texto);
+   * 2) fallback para o override legado `metodologiaTexto` (compartilhado);
+   * 3) fallback final para o texto padrão do tipo.
+   */
+  private getMetodologiaParaLaudo(laudo: Laudo, config: PdfConfig): string[] {
+    const tipoNorm = (laudo.tipoVistoria || '').toLowerCase();
+    const overridePorTipo =
+      tipoNorm === 'saída' || tipoNorm === 'saida'
+        ? config.metodologiaSaidaTexto
+        : tipoNorm === 'constatação' || tipoNorm === 'constatacao'
+        ? config.metodologiaConstatacaoTexto
+        : tipoNorm === 'periódica' || tipoNorm === 'periodica'
+        ? config.metodologiaPeriodicaTexto
+        : config.metodologiaEntradaTexto;
+
+    if (overridePorTipo && overridePorTipo.trim().length > 0) {
+      return this.splitParagrafos(overridePorTipo);
+    }
+    if (config.metodologiaTexto && config.metodologiaTexto.trim().length > 0) {
+      return this.splitParagrafos(config.metodologiaTexto);
+    }
+    return this.getMetodologiaPadrao(laudo.tipoVistoria);
   }
 
   private getSignaturesHtml(laudo: Laudo, config: PdfConfig): string {
@@ -566,16 +630,16 @@ export class PdfService {
   private getCss(config: PdfConfig): string {
     return `
         * { box-sizing: border-box; }
-        
-        body { 
-            margin: 0; padding: 0; 
-            font-family: "Roboto", Arial, sans-serif; 
+
+        body {
+            margin: 0; padding: 0;
+            font-family: "Roboto", Arial, sans-serif;
             background: #fff; color: #000;
             -webkit-print-color-adjust: exact; print-color-adjust: exact;
         }
 
         .page-break { page-break-after: always; }
-        
+
         .page-container {
             width: 210mm; height: 297mm; position: relative;
             background-color: #fff;
@@ -599,20 +663,20 @@ export class PdfService {
         /* CAPA */
         .div-laudo-de-vistoria { background-color: #d9d9d9; margin-bottom: 20px; margin-top: 35px; }
         .div-laudo-de-vistoria h1 { text-align: center; font-size: 25px; margin: 0; padding: 10px 0; font-weight: 700; }
-        
+
         .div-informacoes-da-vistoria h2 { margin: 0px; font-size: 14px; border-bottom: solid #c0c0c0 1px; padding-bottom: 2px; font-weight: 700; }
-        
+
         .campos { width: 100%; margin-top: 9px; display: flex; flex-direction: column; gap: 4px; }
         .linha-campos { display: flex; width: 100%; gap: 4px; align-items: stretch; }
-        
+
         .formatacao-campos { display: flex; background-color: #d9d9d9; padding: 2px; align-items: baseline; }
         .formatacao-campos > strong { font-size: 12px; margin-left: 2px; white-space: nowrap; }
         .formatacao-campos > p { margin: 0px; font-size: 12px; margin-left: 3px; word-wrap: break-word; }
         .valor-campo { text-transform: capitalize; }
-        
+
         .campo-curto { width: 170px; flex-shrink: 0; min-height: 100%; }
         .campo-longo { flex: 1; min-height: 100%; }
-        
+
         .div-metodologia { margin-top: 17px; }
         .div-metodologia > h1 { font-size: 14px; border-bottom: solid #c0c0c0 1px; margin: 0; padding-bottom: 2px; font-weight: 700; }
         .div-metodologia > p { font-weight: 400; font-size: 16px; text-align: justify; margin: 10px 0; line-height: 1.4; }
@@ -791,9 +855,7 @@ export class PdfService {
       dataRealizacao = date.toLocaleDateString('pt-BR');
     }
 
-    const textosMetodologia = config.metodologiaTexto
-      ? this.splitParagrafos(config.metodologiaTexto)
-      : this.getMetodologiaPadrao(tipoVistoria);
+    const textosMetodologia = this.getMetodologiaParaLaudo(laudo, config);
 
     return `
         <div class="page-container page-cover">
@@ -862,19 +924,30 @@ export class PdfService {
       }
     });
 
-    const textosTermos = config.termosGeraisTexto
-      ? this.splitParagrafos(config.termosGeraisTexto)
-      : TERMOS_GERAIS_TEXTS;
+    const normalizedTipo = (laudo.tipoVistoria || '').toLowerCase();
+    const ocultarTermosGerais =
+      normalizedTipo === 'constatação' ||
+      normalizedTipo === 'constatacao' ||
+      normalizedTipo === 'periódica' ||
+      normalizedTipo === 'periodica';
+
+    const textosTermos = !ocultarTermosGerais
+      ? config.termosGeraisTexto
+        ? this.splitParagrafos(config.termosGeraisTexto)
+        : TERMOS_GERAIS_TEXTS
+      : [];
 
     return `
         <div class="page-container page-standard">
             <div style="height: 35px;"></div>
-            
-            <div class="termos-gerais">
+
+            ${ocultarTermosGerais
+              ? ''
+              : `<div class="termos-gerais">
                 <h2>Termos Gerais</h2>
                 ${textosTermos.map((texto) => `<p>${this.escapeHtml(texto)}</p>`).join('')}
-            </div>
-            
+            </div>`}
+
             <div class="ambientes-section">
                 <h2>Ambientes</h2>
                 <div class="ambientes-container">
