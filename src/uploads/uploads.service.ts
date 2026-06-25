@@ -589,6 +589,9 @@ export class UploadsService {
       .where('img.laudo_id = :laudoId', { laudoId })
       .andWhere('img.ambiente IS NOT NULL')
       .andWhere("img.ambiente != ''")
+      .andWhere('LOWER(img.ambiente) <> :ambienteSentinela', {
+        ambienteSentinela: 'desconhecido',
+      })
       .groupBy('img.ambiente');
 
     // Obter total de ambientes distintos
@@ -598,6 +601,9 @@ export class UploadsService {
       .where('img.laudo_id = :laudoId', { laudoId })
       .andWhere('img.ambiente IS NOT NULL')
       .andWhere("img.ambiente != ''")
+      .andWhere('LOWER(img.ambiente) <> :ambienteSentinela', {
+        ambienteSentinela: 'desconhecido',
+      })
       .getRawOne();
 
     const total = parseInt(totalQuery?.count || '0', 10);
@@ -780,6 +786,9 @@ export class UploadsService {
         .where('img.laudo_id = :laudoId', { laudoId })
         .andWhere('img.ambiente IS NOT NULL')
         .andWhere("img.ambiente != ''")
+        .andWhere('LOWER(img.ambiente) <> :ambienteSentinela', {
+          ambienteSentinela: 'desconhecido',
+        })
         .getRawOne();
 
       const totalAmbientes = parseInt(totalAmbientesQuery?.count || '0', 10);

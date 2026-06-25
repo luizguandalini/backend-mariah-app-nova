@@ -529,7 +529,14 @@ export class LaudosService {
 
     imagens.forEach((img, index) => {
       const nomeAmbiente = (img.ambiente || '').trim();
-      if (!nomeAmbiente) {
+      // Descarta valores vazios e o sentinela "Desconhecido" herdado da
+      // Lambda de ingestão EXIF (scripts/index.js). Imagens complementares
+      // (registros complementares / contestação) e linhas legadas sem
+      // ambiente real não devem inflar a lista de ambientes.
+      if (
+        !nomeAmbiente ||
+        nomeAmbiente.toLowerCase() === 'desconhecido'
+      ) {
         return;
       }
 
