@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
   BadRequestException,
   ConflictException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, SelectQueryBuilder } from 'typeorm';
@@ -43,6 +44,8 @@ const MAX_AMBIENTE_NOME_LENGTH = 100;
 
 @Injectable()
 export class LaudosService {
+  private readonly logger = new Logger(LaudosService.name);
+
   constructor(
     @InjectRepository(Laudo)
     private readonly laudoRepository: Repository<Laudo>,
@@ -937,6 +940,17 @@ export class LaudosService {
       stats.unanalyzed === 0
     ) {
       smartStatus = StatusLaudo.CONCLUIDO;
+      // Promove o status persistido também. Sem isso, a promoção é apenas
+      // transient (calculada a cada listagem) e cai de volta para
+      // `nao_iniciado` no momento em que o usuário faz upload de uma nova
+      // imagem com `imagem_ja_foi_analisada_pela_ia = 'nao'` (mesmo que a
+      // imagem vá para a tabela `contestacao_imagens` ou seja de um fluxo
+      // paralelo, qualquer re-fetch pode mudar a percepção do status). O
+      // efeito colateral aqui é que, uma vez que o laudo tenha sido
+      // efetivamente concluído, ele permanece concluído no DB até que o
+      // status seja explicitamente alterado por outra rota (IA reprocessar,
+      // deleção de laudo, etc.).
+      this.persistSmartConclusion(laudo.id);
     }
 
     return {
@@ -972,6 +986,30 @@ export class LaudosService {
       createdAt: laudo.createdAt,
       updatedAt: laudo.updatedAt,
     };
+  }
+
+  /**
+   * Persiste a promoção "smart" do status de `nao_iniciado` para `concluido`
+   * quando todas as imagens já foram analisadas. Disparado em
+   * `mapLaudoListItem` como efeito colateral fire-and-forget — não bloqueia
+   * a resposta HTTP, e qualquer erro é silenciosamente ignorado (próxima
+   * listagem vai tentar de novo).
+   *
+   * Idempotente: o `update` filtra por `status = 'nao_iniciado'`, então
+   * se outro processo já promoveu o laudo ou se o status mudou para outro
+   * valor (PROCESSANDO, PARALISADO etc.), a query não faz nada.
+   */
+  private persistSmartConclusion(laudoId: string): void {
+    this.laudoRepository
+      .update(
+        { id: laudoId, status: StatusLaudo.NAO_INICIADO },
+        { status: StatusLaudo.CONCLUIDO },
+      )
+      .catch((err) => {
+        this.logger.warn(
+          `Falha ao persistir smart status para laudo ${laudoId}: ${err?.message ?? err}`,
+        );
+      });
   }
 
   async findOne(id: string): Promise<Laudo> {
