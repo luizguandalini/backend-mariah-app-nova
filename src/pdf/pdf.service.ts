@@ -60,6 +60,8 @@ type PdfConfig = {
   logoCapaY?: number | null;
   logoCapaLargura?: number | null;
   logoCapaAltura?: number | null;
+  // Rodapé exibido em todas as páginas (texto livre, ex.: dados da empresa).
+  rodape?: string | null;
 };
 
 @Injectable()
@@ -134,9 +136,26 @@ export class PdfService {
       });
 
       // 5. Buscar Configurações do Usuário
-      const config = await this.usersService.getConfiguracoesPdf(userId);
-      const modoPdf = modoPreviewPdf || config.modoPreviewPdf || 'detalhado';
-      config.modoPreviewPdf = modoPdf;
+      const userConfig = await this.usersService.getConfiguracoesPdf(userId);
+      const modoPdf = modoPreviewPdf || userConfig.modoPreviewPdf || 'detalhado';
+      // Consolida a config do usuário com dados por-laudo (rodapé) em um único
+      // objeto PdfConfig consumido pelo buildHtml.
+      const config: PdfConfig = {
+        margemPagina: userConfig.margemPagina ?? 20,
+        espacamentoHorizontal: userConfig.espacamentoHorizontal ?? 10,
+        espacamentoVertical: userConfig.espacamentoVertical ?? 15,
+        modoPreviewPdf: modoPdf,
+        metodologiaTexto: userConfig.metodologiaTexto ?? null,
+        termosGeraisTexto: userConfig.termosGeraisTexto ?? null,
+        assinaturaTexto: userConfig.assinaturaTexto ?? null,
+        mostrarLogoCapa: userConfig.mostrarLogoCapa ?? true,
+        logoCapaX: userConfig.logoCapaX ?? null,
+        logoCapaY: userConfig.logoCapaY ?? null,
+        logoCapaLargura: userConfig.logoCapaLargura ?? null,
+        logoCapaAltura: userConfig.logoCapaAltura ?? null,
+        // Rodapé é por-laudo (vem da capa/informações adicionais). Pode ser nulo.
+        rodape: laudo.rodape ?? null,
+      };
 
       // --- Processamento ---
 
@@ -391,12 +410,24 @@ export class PdfService {
             <div class="page-break"></div>
             ${signatures}
             <script>
-              document.querySelectorAll('.page-container').forEach(function(page, i) {
-                var footer = document.createElement('div');
-                footer.className = 'page-footer';
-                footer.textContent = String(i + 1);
-                page.appendChild(footer);
-              });
+              (function() {
+                var rodapeText = ${JSON.stringify(this.escapeHtml(config.rodape || ''))};
+                document.querySelectorAll('.page-container').forEach(function(page, i) {
+                  var footer = document.createElement('div');
+                  footer.className = 'page-footer';
+                  if (rodapeText) {
+                    var text = document.createElement('span');
+                    text.className = 'page-footer-text';
+                    text.textContent = rodapeText;
+                    footer.appendChild(text);
+                  }
+                  var number = document.createElement('span');
+                  number.className = 'page-footer-number';
+                  number.textContent = String(i + 1);
+                  footer.appendChild(number);
+                  page.appendChild(footer);
+                });
+              })();
             </script>
         </body>
       </html>
@@ -671,14 +702,31 @@ export class PdfService {
         
         .avoid-break { page-break-inside: avoid; }
 
-        /* RODAPÉ - NÚMERO DE PÁGINA */
+        /* RODAPÉ - NÚMERO DE PÁGINA + TEXTO LIVRE (MULTILINE) */
         .page-footer {
             position: absolute;
             bottom: 10mm;
+            left: 20mm;
             right: 15mm;
             font-family: 'Roboto', Arial, sans-serif;
             font-size: 10px;
             color: #555;
+        }
+        .page-footer .page-footer-text {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 25mm; /* reserva espaço para o número da página à direita */
+            text-align: center;
+            white-space: pre-wrap; /* respeita \n do rodapé */
+            word-break: break-word;
+            max-height: 22mm; /* limita para não estourar a página */
+            overflow: hidden;
+        }
+        .page-footer .page-footer-number {
+            position: absolute;
+            bottom: 0;
+            right: 0;
         }
 
         /* ASSINATURAS */

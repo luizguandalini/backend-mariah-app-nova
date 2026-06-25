@@ -204,4 +204,12 @@ export class CreateLaudoDto {
   @IsObject()
   @IsOptional()
   dadosExtra?: object;
+
+  @ApiPropertyOptional({
+    description:
+      'Texto do rodapé exibido em todas as páginas do PDF (ex.: dados da empresa)',
+  })
+  @IsString()
+  @IsOptional()
+  rodape?: string;
 }

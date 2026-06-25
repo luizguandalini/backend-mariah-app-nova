@@ -179,6 +179,10 @@ export class Laudo {
   @Column({ name: 'dados_extra', type: 'jsonb', nullable: true })
   dadosExtra: object; // { [sectionName]: { [question]: answer } }
 
+  // Texto do rodapé exibido em todas as páginas do PDF (ex.: dados da empresa).
+  @Column({ name: 'rodape', type: 'text', nullable: true })
+  rodape: string | null;
+
   // Ambientes criados via web (galeria) - permite ambientes vazios sem imagens
   @Column({ name: 'ambientes_web', type: 'jsonb', nullable: true, default: () => "'[]'" })
   ambientesWeb: { nomeAmbiente: string; tipoAmbiente: string; ordem: number }[];
