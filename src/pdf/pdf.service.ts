@@ -566,9 +566,7 @@ export class PdfService {
         paginas.push(this.renderContestacaoPaginaFotos(headerHtml, lote));
       }
 
-      return (
-        paginas.join('<div class="page-break"></div>') + '<div class="page-break"></div>'
-      );
+      return paginas.join('<div class="page-break"></div>');
     } catch (err) {
       this.logger.error('Falha ao renderizar contestação no PDF', err as Error);
       return '';
