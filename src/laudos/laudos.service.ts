@@ -1367,6 +1367,7 @@ export class LaudosService {
         ordem: img.ordem,
         categoria: img.categoria,
         tipo: img.tipo,
+        usarNomeArquivoComoLegenda: !!img.usarNomeArquivoComoLegenda,
       };
     });
 

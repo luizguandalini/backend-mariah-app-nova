@@ -90,6 +90,17 @@ export class ImagemLaudo {
   @Column({ type: 'integer', default: 0 })
   ordem: number;
 
+  // Quando true, indica que esta imagem foi enviada com a opção
+  // "Usar nome do arquivo como legenda" ativa. O PDF e o preview do laudo
+  // usam esse flag para suprimir o prefixo "Nº amb (Nº foto)" e mostrar
+  // apenas a legenda (que será o nome original do arquivo).
+  @Column({
+    name: 'usar_nome_arquivo_como_legenda',
+    type: 'boolean',
+    default: false,
+  })
+  usarNomeArquivoComoLegenda: boolean;
+
   // Tipo do ambiente selecionado (ex: "Sala de Jantar") - determina qual Ambiente usar para buscar prompts
   @Column({ name: 'tipo_ambiente', type: 'varchar', length: 255, nullable: true })
   tipoAmbiente: string;

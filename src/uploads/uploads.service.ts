@@ -327,6 +327,7 @@ export class UploadsService {
         ordem: this.normalizarOrdem(dto.ordem),
         ambienteComentario: dto.ambienteComentario || null,
         imagemJaFoiAnalisadaPelaIa: legendaPorNomeArquivo ? 'sim' : 'nao',
+        usarNomeArquivoComoLegenda: !!legendaPorNomeArquivo,
       });
       const imagemSalva = await this.imagemLaudoRepository.save(imagem);
       this.logger.log(
@@ -686,6 +687,8 @@ export class UploadsService {
           s3Key: img.s3Key,
           ordem: img.ordem,
           ambiente: img.ambiente,
+          usarNomeArquivoComoLegenda: img.usarNomeArquivoComoLegenda,
+          legenda: img.legenda,
         })),
       )}`,
     );
@@ -1359,6 +1362,7 @@ ${itemsListString}`;
     if (legendaPorNomeArquivo) {
       imagem.legenda = legendaPorNomeArquivo;
       imagem.imagemJaFoiAnalisadaPelaIa = 'sim';
+      imagem.usarNomeArquivoComoLegenda = true;
     }
   }
 
@@ -1438,6 +1442,10 @@ ${itemsListString}`;
       dataCaptura: img.dataCaptura,
       imagemJaFoiAnalisadaPelaIa: img.imagemJaFoiAnalisadaPelaIa,
       ordem: img.ordem,
+      // Flag per-imagem: indica se esta foto foi enviada com a opção
+      // "Usar nome do arquivo como legenda" ativa. O frontend usa isso
+      // para suprimir o prefixo "Nº amb (Nº foto)" no preview/PDF.
+      usarNomeArquivoComoLegenda: !!img.usarNomeArquivoComoLegenda,
     };
   }
 }

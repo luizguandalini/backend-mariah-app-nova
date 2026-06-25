@@ -991,10 +991,20 @@ export class PdfService {
                           '',
                         );
 
+                        // Quando a imagem foi enviada com a opção "Usar nome do
+                        // arquivo como legenda" ativa, suprimimos o prefixo
+                        // "Nº amb (Nº foto)" e mostramos apenas a legenda.
+                        const usarNomeArquivoComoLegenda =
+                          !!img.usarNomeArquivoComoLegenda;
+                        const textoLegenda =
+                          (img.legenda || '').trim() || ambienteSemNumero;
+
                         if (isCompacto) {
-                          const rotulo = `${img.numeroAmbiente || ''} (${
-                            img.numeroImagemNoAmbiente || ''
-                          }) ${ambienteSemNumero}`;
+                          const rotulo = usarNomeArquivoComoLegenda
+                            ? textoLegenda
+                            : `${img.numeroAmbiente || ''} (${
+                                img.numeroImagemNoAmbiente || ''
+                              }) ${ambienteSemNumero}`;
 
                           return `
                         <div class="foto-card">
@@ -1008,6 +1018,10 @@ export class PdfService {
                     `;
                         }
 
+                        const prefixoNumeros = usarNomeArquivoComoLegenda
+                          ? ''
+                          : `<strong>${img.numeroAmbiente} (${img.numeroImagemNoAmbiente})</strong> `;
+
                         return `
                         <div class="foto-card">
                             <div class="foto-container">
@@ -1015,7 +1029,7 @@ export class PdfService {
                             </div>
                             <div class="foto-ambiente">${ambienteSemNumero}</div>
                             <div class="foto-legenda">
-                                <strong>${img.numeroAmbiente} (${img.numeroImagemNoAmbiente})</strong> ${img.legenda || ''}
+                                ${prefixoNumeros}${this.escapeHtml(img.legenda || '')}
                             </div>
                         </div>
                     `;
