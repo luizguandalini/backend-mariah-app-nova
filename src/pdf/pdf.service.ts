@@ -802,6 +802,13 @@ export class PdfService {
         .foto-container { border: 1px solid #9ca3af; margin-bottom: 4px; overflow: hidden; }
         .foto-img { width: 100%; height: 200px; object-fit: cover; object-position: center; display: block; }
         .foto-container-compacta { border: 1px solid #d1d5db; margin-bottom: 0; overflow: hidden; }
+        /* Borda vermelha em fotos marcadas como avaria - mesmo tamanho
+           (3px) e cor (#ef4444) usados na galeria (border-[3px]
+           border-red-500) e no preview/gerador do frontend, para
+           manter o sinal visual consistente em todos os pontos onde
+           a foto aparece. */
+        .foto-container-avaria { border: 3px solid #ef4444; margin-bottom: 4px; overflow: hidden; }
+        .foto-container-compacta-avaria { border: 3px solid #ef4444; margin-bottom: 0; overflow: hidden; }
         .foto-img-compacta { width: 100%; height: 178px; object-fit: cover; object-position: center; display: block; }
         .foto-ambiente { font-weight: bold; font-size: 10px; text-transform: uppercase; line-height: 1.2; text-align: left; }
         .foto-legenda { font-size: 9px; line-height: 1.4; text-align: left; }
@@ -1119,10 +1126,16 @@ export class PdfService {
                             : `${img.numeroAmbiente || ''} (${
                                 img.numeroImagemNoAmbiente || ''
                               }) ${ambienteSemNumero}`;
+                          const isAvaria =
+                            (img.categoria || '').trim().toUpperCase() ===
+                            'AVARIA';
+                          const fotoContainerClass = isAvaria
+                            ? 'foto-container-compacta-avaria'
+                            : 'foto-container-compacta';
 
                           return `
                         <div class="foto-card">
-                            <div class="foto-container-compacta">
+                            <div class="${fotoContainerClass}">
                                 <img src="${img.publicUrl}" class="foto-img-compacta" />
                             </div>
                             <div class="foto-legenda-compacta" title="${this.escapeHtml(rotulo)}">
@@ -1135,10 +1148,16 @@ export class PdfService {
                         const prefixoNumeros = usarNomeArquivoComoLegenda
                           ? ''
                           : `<strong>${img.numeroAmbiente} (${img.numeroImagemNoAmbiente})</strong> `;
+                        const isAvaria =
+                          (img.categoria || '').trim().toUpperCase() ===
+                          'AVARIA';
+                        const fotoContainerClass = isAvaria
+                          ? 'foto-container-avaria'
+                          : 'foto-container';
 
                         return `
                         <div class="foto-card">
-                            <div class="foto-container">
+                            <div class="${fotoContainerClass}">
                                 <img src="${img.publicUrl}" class="foto-img" />
                             </div>
                             <div class="foto-ambiente">${ambienteSemNumero}</div>
