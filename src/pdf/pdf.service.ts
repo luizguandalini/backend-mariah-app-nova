@@ -416,6 +416,13 @@ export class PdfService {
     const cover = this.getCoverHtml(laudo, config, logoUrl);
     const infoPage = this.getInfoPageHtml(laudo, ambientes, config);
     const photos = this.getPhotosHtml(imagens, laudo, config);
+    // "Registro de Apontamentos" — página(s) dedicada(s) para as fotos
+    // marcadas como AVARIA. Inserida DEPOIS da galeria principal
+    // (`photos`) e ANTES do Relatório. Retorna '' quando não há avarias
+    // (não aloca página extra). As avarias continuam aparecendo na
+    // galeria principal — esta seção é um espaço ADICIONAL dedicado
+    // para consulta rápida, sem repetir nada do que já está nas fotos.
+    const apontamentosHtml = this.getApontamentosHtml(imagens);
     const report = await this.getReportHtml(laudo, sections);
     // Registros complementares (contestação) — quando realizada, é renderizada
     // antes da página de assinaturas.
@@ -438,6 +445,8 @@ export class PdfService {
             ${infoPage}
             <div class="page-break relative"></div>
             ${photos}
+            ${apontamentosHtml ? '<div class="page-break"></div>' : ''}
+            ${apontamentosHtml}
             <div class="page-break"></div>
             ${report}
             ${contestacaoHtml}
@@ -612,6 +621,127 @@ export class PdfService {
                     <img src="${img.url}" alt="${this.escapeHtml(legenda)}" />
                   </div>
                   <div class="contestacao-card-legenda">${this.escapeHtml(legenda)}</div>
+                </div>
+              `;
+            })
+            .join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Renderiza a seção "Registro de Apontamentos" como uma página dedicada
+   * (com título + subtítulo no topo) seguida por um grid de fotos das
+   * imagens marcadas como AVARIA. Cada card mostra a foto (com a borda
+   * vermelha já usada na galeria principal), o ambiente ao qual a foto
+   * pertence e a ordem dela naquele ambiente. A legenda aparece logo
+   * abaixo; quando a foto foi enviada com a preferência "Usar nome do
+   * arquivo como legenda" ativa, suprimimos o prefixo "Nº amb (Nº foto)"
+   * e mostramos apenas a legenda — exatamente a mesma regra usada em
+   * `getPhotosHtml` (linhas 1118–1166) e em `VisualizadorPdfLaudo`.
+   *
+   * Esta página é inserida entre a Info Page e a página de Fotos (a
+   * galeria principal continua exibindo TODAS as imagens, incluindo as
+   * avarias — nenhuma foto some da seção original). Retorna `''` quando
+   * o laudo não tem nenhuma imagem de avaria, para que o `buildHtml`
+   * simplesmente não aloque uma página para esta seção.
+   */
+  private getApontamentosHtml(imagens: any[]): string {
+    const avarias = (imagens || []).filter(
+      (img) => (img.categoria || '').trim().toUpperCase() === 'AVARIA',
+    );
+
+    if (avarias.length === 0) {
+      return '';
+    }
+
+    // Mesma regra dos Registros Complementares: grid 3x3, 9 por página.
+    const FOTOS_POR_PAGINA = 9;
+
+    const total = avarias.length;
+    const plural = total === 1 ? '1 imagem de avaria' : `${total} imagens de avaria`;
+
+    const paginas: string[] = [];
+    for (let i = 0; i < avarias.length; i += FOTOS_POR_PAGINA) {
+      const lote = avarias.slice(i, i + FOTOS_POR_PAGINA);
+      const primeiraPagina = i === 0;
+      const headerHtml = primeiraPagina
+        ? this.renderApontamentosCabecalho(plural)
+        : '';
+      paginas.push(this.renderApontamentosPagina(headerHtml, lote));
+    }
+
+    return paginas.join('<div class="page-break"></div>');
+  }
+
+  /**
+   * Cabeçalho da primeira página do bloco "Registro de Apontamentos".
+   * Apenas na primeira página; nas subsequentes vai direto pro grid.
+   */
+  private renderApontamentosCabecalho(plural: string): string {
+    return `
+      <div class="apontamentos-header">
+        <h1 class="apontamentos-header-titulo">REGISTRO DE APONTAMENTOS</h1>
+        <div class="apontamentos-header-meta">
+          <span>${plural}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Renderiza uma página do bloco "Registro de Apontamentos": cabeçalho
+   * (opcional, só na primeira) + grid 3x3 de cards. Cada card mantém
+   * a mesma lógica de "usarNomeArquivoComoLegenda" aplicada em
+   * `getPhotosHtml` para que o comportamento seja idêntico em ambas
+   * as seções do laudo.
+   *
+   * Usa `.page-dynamic` (mesma classe da galeria principal) em vez de
+   * `.page-standard` para herdar `padding: ${config.margemPagina}px` —
+   * assim os cards ficam do MESMO tamanho dos cards da galeria
+   * (mesma unidade de medida, sem inflar com 20mm). O gap do grid
+   * também usa `espacamentoVertical`/`espacamentoHorizontal` da config.
+   * O spacer de 35px no topo replica o padrão de
+   * `renderContestacaoPaginaFotos`/`renderRelatorioPage` para alinhar
+   * verticalmente com as demais páginas do preview.
+   */
+  private renderApontamentosPagina(
+    headerHtml: string,
+    lote: any[],
+  ): string {
+    return `
+      <div class="page-container page-dynamic apontamentos-pagina">
+        <div style="height: 35px;"></div>
+        ${headerHtml}
+        <div class="apontamentos-grid">
+          ${lote
+            .map((img) => {
+              const ambienteSemNumero = (img.ambiente || 'AMBIENTE').replace(
+                /^\d+\s*-\s*/,
+                '',
+              );
+              const usarNomeArquivoComoLegenda =
+                !!img.usarNomeArquivoComoLegenda;
+              const textoLegenda = (img.legenda || '').trim();
+
+              // Mesmo padrão de supressão do prefixo usado em
+              // `getPhotosHtml`: quando `usarNomeArquivoComoLegenda`
+              // for true, escondemos "Nº amb (Nº foto)" e mostramos
+              // só a legenda.
+              const prefixoNumeros = usarNomeArquivoComoLegenda
+                ? ''
+                : `<strong>${img.numeroAmbiente || ''} (${img.numeroImagemNoAmbiente || ''})</strong> `;
+
+              return `
+                <div class="apontamentos-card">
+                  <div class="apontamentos-card-foto">
+                    <img src="${img.publicUrl}" alt="${this.escapeHtml(textoLegenda || ambienteSemNumero)}" />
+                  </div>
+                  <div class="apontamentos-card-ambiente">${this.escapeHtml(ambienteSemNumero)}</div>
+                  <div class="apontamentos-card-legenda">
+                    ${prefixoNumeros}${this.escapeHtml(textoLegenda)}
+                  </div>
                 </div>
               `;
             })
@@ -933,6 +1063,27 @@ export class PdfService {
         .contestacao-card-foto { border: 1px solid #9ca3af; overflow: hidden; margin-bottom: 3px; }
         .contestacao-card-foto img { width: 100%; height: 200px; object-fit: cover; object-position: center; display: block; }
         .contestacao-card-legenda { font-size: 9px; line-height: 1.35; text-align: left; color: #000; padding: 0 2px; }
+
+        /* REGISTRO DE APONTAMENTOS — página dedicada para imagens de avaria.
+           Aparece DEPOIS da galeria principal de Fotos e ANTES do
+           Relatório. O wrapper usa a classe .page-dynamic (que aplica
+           padding a partir de config.margemPagina) para herdar o mesmo
+           padding da galeria principal — assim os cards ficam do MESMO
+           tamanho dos cards de Fotos. O gap do grid usa as mesmas
+           variáveis de .grid-fotos (espacamentoVertical /
+           espacamentoHorizontal) para que o espaçamento entre cards
+           seja idêntico ao da galeria principal. */
+        .apontamentos-pagina { background-color: #fff; }
+        .apontamentos-header { border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 14px; }
+        .apontamentos-header-titulo { font-size: 18px; font-weight: 700; text-transform: uppercase; margin: 0; letter-spacing: 0.5px; color: #000; }
+        .apontamentos-header-meta { display: flex; gap: 16px; font-size: 11px; color: #555; margin-top: 4px; }
+        .apontamentos-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: ${config.espacamentoVertical}px ${config.espacamentoHorizontal}px; align-content: start; }
+        .apontamentos-card { break-inside: avoid; }
+        .apontamentos-card-foto { border: 3px solid #ef4444; margin-bottom: 4px; overflow: hidden; }
+        .apontamentos-card-foto img { width: 100%; height: 200px; object-fit: cover; object-position: center; display: block; }
+        .apontamentos-card-ambiente { font-size: 10px; font-weight: 700; text-transform: uppercase; line-height: 1.2; text-align: left; color: #000; }
+        .apontamentos-card-legenda { font-size: 9px; line-height: 1.4; text-align: left; color: #000; }
+        .apontamentos-card-legenda strong { margin-right: 4px; }
      `;
   }
 

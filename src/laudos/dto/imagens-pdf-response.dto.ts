@@ -33,5 +33,13 @@ export interface ImagensPdfResponseDto {
     contestacaoImagesCount: number;
     /** Flag que indica se a contestação já foi enviada (travada). */
     contestacaoRealizada: boolean;
+    /**
+     * Quantidade de imagens marcadas como AVARIA neste laudo.
+     * Quando > 0, o frontend aloca 1+ páginas dedicadas para a seção
+     * "Registro de Apontamentos" (que vem ANTES das páginas de fotos,
+     * entre Info Page e Fotos). Mesma regra do backend de PDF:
+     * 9 fotos por página (grid 3x3).
+     */
+    apontamentosImagesCount: number;
   };
 }

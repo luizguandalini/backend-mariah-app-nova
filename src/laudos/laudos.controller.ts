@@ -198,6 +198,30 @@ export class LaudosController {
     );
   }
 
+  /**
+   * Retorna somente as imagens marcadas como AVARIA, com URLs
+   * pré-assinadas e numeração (ambiente + ordem) consistente com a
+   * galeria principal. Alimenta a página dedicada "Registro de
+   * Apontamentos" no preview do PDF. O permissionamento é aplicado
+   * dentro do service (mesmo gate do `getImagensPdfPaginadas`).
+   */
+  @Get(':id/imagens-avarias')
+  @ApiOperation({
+    summary: 'Buscar imagens de avaria (Registro de Apontamentos) do laudo',
+  })
+  @ApiParam({ name: 'id', description: 'ID do laudo' })
+  @ApiResponse({ status: 200, description: 'Imagens de avaria retornadas' })
+  async getImagensAvarias(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ) {
+    return await this.laudosService.getImagensAvariaInterno(
+      id,
+      user.id,
+      user.role,
+    );
+  }
+
   @Post(':id/pdf-request')
   @ApiOperation({ summary: 'Solicitar geração de PDF (Async via RabbitMQ)' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })

@@ -1374,6 +1374,11 @@ export class LaudosService {
           // de Registros Complementares (se houver) sem segunda chamada.
           contestacaoImagesCount,
           contestacaoRealizada: !!laudo.contestacaoRealizada,
+          // Mesmo motivo: o frontend usa esta contagem para alocar
+          // páginas dedicadas de "Registro de Apontamentos" antes das
+          // fotos. Aqui sempre 0 (não há imagens filtradas) — fica
+          // explícito para a UI não inflar totalPaginas por engano.
+          apontamentosImagesCount: 0,
         },
       };
     }
@@ -1452,6 +1457,12 @@ export class LaudosService {
         imagesPerPage: limit,
         contestacaoImagesCount,
         contestacaoRealizada: !!laudo.contestacaoRealizada,
+        // Filtra as imagens já carregadas por categoria === 'AVARIA'.
+        // Mantém apenas as que também estão em `ambientesWeb` ativos (se
+        // essa lista existir), consistente com o que vai para as fotos.
+        apontamentosImagesCount: todasImagensFiltradas.filter(
+          (img) => (img.categoria || '').trim().toUpperCase() === 'AVARIA',
+        ).length,
       },
     };
   }
@@ -1463,5 +1474,127 @@ export class LaudosService {
     }
 
     return normalizado.replace(/^\d+\s*-\s*/, '').trim() || normalizado;
+  }
+
+  /**
+   * Retorna as imagens marcadas como AVARIA do laudo, prontas para
+   * alimentar a página dedicada "Registro de Apontamentos" no preview
+   * do PDF. Espelha o padrão de `ContestacaoService.getContestacaoInterno`:
+   * gera URLs assinadas em batch e devolve um payload enxuto com os
+   * campos que o card de apontamento precisa (ambiente, ordem, legenda,
+   * flag de legenda por nome de arquivo).
+   *
+   * Aplica o mesmo gate de permissão (owner ou admin/dev) usado em
+   * `getImagensPdfPaginadas` para que o controller possa chamar
+   * diretamente sem um pre-flight artificial. Filtra o mesmo conjunto
+   * de imagens que `getImagensPdfPaginadas` considera (apenas imagens
+   * cujos ambientes estão ativos em `laudo.ambientesWeb`, quando essa
+   * lista existe).
+   */
+  async getImagensAvariaInterno(
+    laudoId: string,
+    usuarioId?: string,
+    userRole?: UserRole,
+  ): Promise<{
+    imagens: Array<{
+      id: string;
+      s3Key: string;
+      url: string;
+      ambiente: string;
+      numeroAmbiente: number;
+      numeroImagemNoAmbiente: number;
+      ordem: number;
+      legenda: string;
+      usarNomeArquivoComoLegenda: boolean;
+      categoria: string;
+    }>;
+  }> {
+    const laudo = await this.laudoRepository.findOne({
+      where: { id: laudoId },
+    });
+
+    if (!laudo) {
+      throw new NotFoundException('Laudo não encontrado');
+    }
+
+    // Quando o método é invocado pelo controller HTTP (sempre com
+    // usuarioId + userRole), aplicamos o mesmo controle de acesso do
+    // `getImagensPdfPaginadas`. Quando é invocado pelo `PdfService`
+    // (geração do PDF), sem credenciais, confiamos no gate do próprio
+    // worker — que já validou o usuário antes de enfileirar.
+    if (usuarioId !== undefined && userRole !== undefined) {
+      const isOwner = laudo.usuarioId === usuarioId;
+      const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
+      if (!isOwner && !isAdminOrDev) {
+        throw new ForbiddenException(
+          'Você não tem permissão para visualizar as imagens deste laudo',
+        );
+      }
+    }
+
+    const ambientesNomesValidos = (laudo.ambientesWeb || []).map(
+      (a) => a.nomeAmbiente,
+    );
+
+    const todas = await this.imagemRepository.find({
+      where: { laudoId },
+      order: { ambiente: 'ASC', ordem: 'ASC' },
+    });
+
+    // Aplica o mesmo filtro de ambientes ativos usado em
+    // `getImagensPdfPaginadas`, e restringe a categoria AVARIA.
+    const avarias = todas.filter((img) => {
+      const isAvaria =
+        (img.categoria || '').trim().toUpperCase() === 'AVARIA';
+      if (!isAvaria) return false;
+      if (ambientesNomesValidos.length === 0) return true;
+      return ambientesNomesValidos.includes(img.ambiente);
+    });
+
+    if (avarias.length === 0) {
+      return { imagens: [] };
+    }
+
+    // Calcula `numeroAmbiente` e `numeroImagemNoAmbiente` no mesmo
+    // esquema do `processImagesForPdf` do PdfService — assim o card
+    // mostra "Nº amb (Nº foto)" consistente com a galeria principal.
+    const contadores = new Map<string, number>();
+    let numeroAmbienteAtual = 0;
+    let ambienteAnterior: string | null = null;
+
+    const enriched = avarias.map((img) => {
+      if (img.ambiente !== ambienteAnterior) {
+        numeroAmbienteAtual++;
+        contadores.set(img.ambiente, 0);
+        ambienteAnterior = img.ambiente;
+      }
+      const novoContador = (contadores.get(img.ambiente) || 0) + 1;
+      contadores.set(img.ambiente, novoContador);
+      return {
+        ...img,
+        numeroAmbiente: numeroAmbienteAtual,
+        numeroImagemNoAmbiente: novoContador,
+      };
+    });
+
+    // Gera URLs assinadas em paralelo (uma chamada por imagem, mesma
+    // estratégia do `getContestacaoInterno`). Aceitável porque apontamentos
+    // é, por definição, um subconjunto pequeno das fotos do laudo.
+    const imagensComUrl = await Promise.all(
+      enriched.map(async (img) => ({
+        id: img.id,
+        s3Key: img.s3Key,
+        url: await this.uploadsService.getSignedUrlForAi(img.s3Key),
+        ambiente: img.ambiente,
+        numeroAmbiente: img.numeroAmbiente,
+        numeroImagemNoAmbiente: img.numeroImagemNoAmbiente,
+        ordem: img.ordem,
+        legenda: img.legenda || '',
+        usarNomeArquivoComoLegenda: !!img.usarNomeArquivoComoLegenda,
+        categoria: img.categoria || '',
+      })),
+    );
+
+    return { imagens: imagensComUrl };
   }
 }
