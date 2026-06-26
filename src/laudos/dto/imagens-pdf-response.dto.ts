@@ -12,6 +12,16 @@ export interface ImagemPdfDto {
   // "Usar nome do arquivo como legenda" ativa. Quando true, o PDF e o
   // preview suprimem o prefixo "Nº amb (Nº foto)" e mostram apenas a legenda.
   usarNomeArquivoComoLegenda?: boolean;
+  /**
+   * Coordenadas normalizadas (0..1) do círculo vermelho de marcação
+   * de avaria que o usuário arrasta na galeria. `x`, `y` em relação a
+   * `naturalWidth/Height` da imagem; `r` em relação a
+   * `min(naturalWidth, naturalHeight)`. Quando `null`, nenhuma
+   * marcação visual. O preview do PDF e o PDF gerado pelo backend
+   * renderizam um overlay de borda vermelha + fill translúcido nesta
+   * posição.
+   */
+  damageMarker?: { x: number; y: number; r: number } | null;
 }
 
 export interface ImagensPdfResponseDto {

@@ -1445,6 +1445,14 @@ export class LaudosService {
         categoria: img.categoria,
         tipo: img.tipo,
         usarNomeArquivoComoLegenda: !!img.usarNomeArquivoComoLegenda,
+        // Coordenadas do círculo de avaria (galeria + PDF). Mesmo
+        // formato em `buildImagemResponse` (UploadsService) e em
+        // `getImagensAvariaInterno` (própria service). Sem este
+        // campo, o preview do PDF não renderiza o overlay e o PDF
+        // gerado ficaria sem o círculo — bug fix: a posição do
+        // marker precisa viajar junto com a imagem em qualquer
+        // endpoint que retorna dados de imagem para a galeria/preview.
+        damageMarker: img.damageMarker ?? null,
       };
     });
 
@@ -1507,6 +1515,10 @@ export class LaudosService {
       legenda: string;
       usarNomeArquivoComoLegenda: boolean;
       categoria: string;
+      // Coordenadas normalizadas (0..1) do círculo de marcação
+      // desenhado sobre a foto na galeria e no PDF. Mesmo formato
+      // que `buildImagemResponse` no `UploadsService`.
+      damageMarker: { x: number; y: number; r: number } | null;
     }>;
   }> {
     const laudo = await this.laudoRepository.findOne({
@@ -1592,6 +1604,7 @@ export class LaudosService {
         legenda: img.legenda || '',
         usarNomeArquivoComoLegenda: !!img.usarNomeArquivoComoLegenda,
         categoria: img.categoria || '',
+        damageMarker: img.damageMarker ?? null,
       })),
     );
 

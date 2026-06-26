@@ -105,6 +105,17 @@ export class ImagemLaudo {
   @Column({ name: 'tipo_ambiente', type: 'varchar', length: 255, nullable: true })
   tipoAmbiente: string;
 
+  /**
+   * Marcador visual do dano: posição e raio do círculo vermelho que o
+   * usuário arrasta sobre fotos marcadas como AVARIA. Coordenadas
+   * normalizadas (0..1) — ver migration 1780400000000. Persistido mesmo
+   * quando a categoria não é AVARIA, para que ao re-marcar como avaria
+   * o círculo reapareça na última posição deixada. A exibição é gated
+   * pelo `categoria === 'AVARIA'` no frontend e no PdfService.
+   */
+  @Column({ name: 'damage_marker', type: 'jsonb', nullable: true })
+  damageMarker: { x: number; y: number; r: number } | null;
+
   @CreateDateColumn({
     name: 'created_at',
     type: 'timestamptz',

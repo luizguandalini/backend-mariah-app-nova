@@ -398,6 +398,7 @@ export class UploadsService {
       descricao?: string;
       ordem?: number;
       ambienteComentario?: string;
+      damageMarker?: { x: number; y: number; r: number } | null;
     },
     userRole: UserRole,
   ): Promise<ImagemLaudo> {
@@ -429,11 +430,22 @@ export class UploadsService {
     if (metadata.ordem !== undefined) imagem.ordem = this.normalizarOrdem(metadata.ordem);
     if (metadata.ambienteComentario !== undefined)
       imagem.ambienteComentario = metadata.ambienteComentario;
+    // Marcador de avaria: aceita `null` explícito para apagar o
+    // círculo. O DTO já validou 0..1 nos campos normalizados — aqui
+    // só persistimos. O frontend faz o clamp visual dos limites da
+    // imagem; manter os valores como recebidos evita dupla fonte de
+    // verdade (clamp no servidor rejeitaria coordenadas válidas em
+    // janelas pequenas do browser que já foram ajustadas).
+    if (metadata.damageMarker !== undefined) {
+      imagem.damageMarker = metadata.damageMarker;
+    }
 
     const categoriaMudou =
       metadata.categoria !== undefined && metadata.categoria !== categoriaAnterior;
 
-    // Reset da análise IA se algum campo relevante mudar
+    // Reset da análise IA se algum campo relevante mudar. Marcador de
+    // avaria NÃO dispara reset — é anotação puramente visual do
+    // usuário, não muda o input que a IA analisa.
     if (metadata.tipo !== undefined || metadata.tipoAmbiente !== undefined || categoriaMudou) {
       imagem.imagemJaFoiAnalisadaPelaIa = 'nao';
       imagem.legenda = 'sem legenda';
@@ -1494,6 +1506,11 @@ ${itemsListString}`;
       // "Usar nome do arquivo como legenda" ativa. O frontend usa isso
       // para suprimir o prefixo "Nº amb (Nº foto)" no preview/PDF.
       usarNomeArquivoComoLegenda: !!img.usarNomeArquivoComoLegenda,
+      // Marcador do círculo de avaria. Mesmo em fotos não-AVARIA o
+      // backend devolve o valor persistido (se houver) — a UI decide
+      // se renderiza com base em `categoria === 'AVARIA'`. Quando
+      // nunca foi setado, vem `null`.
+      damageMarker: img.damageMarker ?? null,
     };
   }
 }

@@ -392,6 +392,67 @@ export class PdfService {
     await page.emulateMediaType('print');
     await page.evaluate(() => document.fonts.ready);
 
+    // Ajusta posição dos markers de avaria com base nas dimensões
+    // naturais da imagem. As coordenadas são salvas normalizadas
+    // em relação à imagem ORIGINAL (`x`/`y` em 0..1 de
+    // naturalWidth/Height; `r` em 0..1 de min(naturalW, naturalH)).
+    // Como o `<img>` é renderizado com `object-fit: cover` dentro
+    // de containers com aspect ratio potencialmente diferente do
+    // da imagem, posicionar em % do container ignora o crop e
+    // deixa o círculo fora do lugar visível da foto. Esta correção
+    // em JS lê as dimensões naturais (já disponíveis após
+    // `waitForFunction`), calcula o crop de object-fit e aplica
+    // a posição em pixels do container — o mesmo cálculo que o
+    // frontend faz com `computeObjectCoverRegion`.
+    await page.evaluate(() => {
+      const markers = document.querySelectorAll<HTMLDivElement>(
+        '.damage-marker',
+      );
+      markers.forEach((marker) => {
+        const container = marker.parentElement;
+        if (!container) return;
+        const img = container.querySelector('img');
+        if (!img) return;
+        const naturalW = img.naturalWidth;
+        const naturalH = img.naturalHeight;
+        if (naturalW === 0 || naturalH === 0) return;
+        const containerRect = container.getBoundingClientRect();
+        if (containerRect.width <= 0 || containerRect.height <= 0) return;
+
+        // Mesma fórmula do frontend: scale = max do aspect ratio
+        // entre container e imagem, depois offX/offY do crop
+        // centralizado.
+        const scale = Math.max(
+          containerRect.width / naturalW,
+          containerRect.height / naturalH,
+        );
+        const displayW = naturalW * scale;
+        const displayH = naturalH * scale;
+        const offX = (displayW - containerRect.width) / 2;
+        const offY = (displayH - containerRect.height) / 2;
+
+        const mx = parseFloat(marker.dataset.mx ?? 'NaN');
+        const my = parseFloat(marker.dataset.my ?? 'NaN');
+        const mr = parseFloat(marker.dataset.mr ?? 'NaN');
+        if (
+          !Number.isFinite(mx) ||
+          !Number.isFinite(my) ||
+          !Number.isFinite(mr)
+        ) {
+          return;
+        }
+
+        const cx = mx * displayW - offX;
+        const cy = my * displayH - offY;
+        const rPx = mr * Math.min(displayW, displayH);
+
+        marker.style.left = `${cx - rPx}px`;
+        marker.style.top = `${cy - rPx}px`;
+        marker.style.width = `${rPx * 2}px`;
+        marker.style.height = `${rPx * 2}px`;
+      });
+    });
+
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,
@@ -735,8 +796,9 @@ export class PdfService {
 
               return `
                 <div class="apontamentos-card">
-                  <div class="apontamentos-card-foto">
+                  <div class="apontamentos-card-foto" style="position: relative;">
                     <img src="${img.publicUrl}" alt="${this.escapeHtml(textoLegenda || ambienteSemNumero)}" />
+                    ${this.renderDamageMarkerOverlay(img.damageMarker)}
                   </div>
                   <div class="apontamentos-card-ambiente">${this.escapeHtml(ambienteSemNumero)}</div>
                   <div class="apontamentos-card-legenda">
@@ -855,6 +917,61 @@ export class PdfService {
             </div>
         </div>
       </div>
+    `;
+  }
+
+  /**
+   * Renderiza o overlay HTML do círculo vermelho de marcação de avaria.
+   *
+   * Schema: `{ x, y, r }` em coords normalizadas da IMAGEM ORIGINAL
+   * (x/y ∈ 0..1 de naturalWidth/Height; r ∈ 0..1 de
+   * min(naturalW, naturalH)) — mesma convenção do frontend e do
+   * jsonb em `imagens_laudo.damage_marker`.
+   *
+   * IMPORTANTE: as coordenadas são salvas em `data-attrs`, não aplicadas
+   * diretamente em `left/top/width/height`. O puppeteer ajusta a
+   * posição em pixels DEPOIS que o `<img>` carrega, considerando o
+   * crop de `object-fit: cover` (que pode ser diferente em cada
+   * container do preview). Sem esse ajuste, o marker fica no lugar
+   * errado sempre que o aspect ratio da imagem ≠ aspect ratio do
+   * container. Veja `renderPdf` para o ajuste.
+   */
+  private renderDamageMarkerOverlay(
+    marker: { x: number; y: number; r: number } | null | undefined,
+  ): string {
+    if (!marker) return '';
+    const x = marker.x;
+    const y = marker.y;
+    const r = marker.r;
+    // Defesas em profundidade: se um marker inválido chegar até aqui,
+    // não renderiza overlay em vez de quebrar o PDF inteiro.
+    if (
+      typeof x !== 'number' ||
+      typeof y !== 'number' ||
+      typeof r !== 'number' ||
+      x < 0 ||
+      x > 1 ||
+      y < 0 ||
+      y > 1 ||
+      r <= 0 ||
+      r > 0.5
+    ) {
+      return '';
+    }
+    // Estilos visuais (borda, fill, raio circular) ficam inline no
+    // `style` porque o PDF do puppeteer é renderizado num iframe
+    // offscreen sem stylesheet externa. `position: absolute` para
+    // sobrepor a `<img>` irmã. `left/top/width/height` ficam zerados
+    // — o ajuste em `renderPdf` (após load do img) sobrescreve com
+    // os valores em pixels calculados do crop de object-cover.
+    return `
+      <div class="damage-marker"
+           data-mx="${x}"
+           data-my="${y}"
+           data-mr="${r}"
+           style="position: absolute; left: 0; top: 0; width: 0; height: 0;
+                  border: 3px solid #ef4444; background-color: rgba(239, 68, 68, 0.25);
+                  border-radius: 50%; pointer-events: none; box-sizing: border-box;"></div>
     `;
   }
 
@@ -1286,8 +1403,9 @@ export class PdfService {
 
                           return `
                         <div class="foto-card">
-                            <div class="${fotoContainerClass}">
+                            <div class="${fotoContainerClass}" style="position: relative;">
                                 <img src="${img.publicUrl}" class="foto-img-compacta" />
+                                ${isAvaria ? this.renderDamageMarkerOverlay(img.damageMarker) : ''}
                             </div>
                             <div class="foto-legenda-compacta" title="${this.escapeHtml(rotulo)}">
                                 <span>${this.escapeHtml(rotulo)}</span>
@@ -1308,8 +1426,9 @@ export class PdfService {
 
                         return `
                         <div class="foto-card">
-                            <div class="${fotoContainerClass}">
+                            <div class="${fotoContainerClass}" style="position: relative;">
                                 <img src="${img.publicUrl}" class="foto-img" />
+                                ${isAvaria ? this.renderDamageMarkerOverlay(img.damageMarker) : ''}
                             </div>
                             <div class="foto-ambiente">${ambienteSemNumero}</div>
                             <div class="foto-legenda">

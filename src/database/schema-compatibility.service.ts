@@ -63,6 +63,16 @@ export class SchemaCompatibilityService implements OnApplicationBootstrap {
       definition: "varchar(3) NOT NULL DEFAULT 'nao'",
     },
     {
+      // Marcador visual do dano (círculo vermelho arrastável) que o
+      // usuário posiciona sobre fotos marcadas como AVARIA. Coordenadas
+      // normalizadas (0..1) em { x, y, r } — ver migration
+      // 1780400000000-AddDamageMarkerToImagemLaudo. Nullable: fotos não
+      // marcadas como AVARIA simplesmente não têm o overlay exibido.
+      table: 'imagens_laudo',
+      column: 'damage_marker',
+      definition: 'jsonb',
+    },
+    {
       table: 'configuracoes_pdf_usuario',
       column: 'modo_preview_pdf',
       definition: "varchar(20) NOT NULL DEFAULT 'detalhado'",
