@@ -230,6 +230,13 @@ export class UploadsService {
       }
       throw error; // Outros erros devem ser propagados
     }
+
+    // Recalcular contadores do Laudo. Sem isso, o card do dashboard
+    // (que lê `laudos.total_fotos` / `laudos.total_ambientes`) ficava
+    // preso no valor antigo — em laudos novos, permanecia em `0`
+    // mesmo após o upload. A deleção já fazia esse recálculo desde
+    // antes; aqui replicamos para o caminho de inserção.
+    await this.atualizarEstatisticasLaudo(laudoId);
   }
 
   /**
@@ -308,6 +315,10 @@ export class UploadsService {
       this.logger.log(
         `[CONFIRM_WEB][DONE_UPDATE] session=${dto.uploadSessionId || '-'} fileId=${dto.clientFileId || '-'} imageId=${imagemAtualizada.id} ambiente="${imagemAtualizada.ambiente}" ordem=${imagemAtualizada.ordem} s3Key="${imagemAtualizada.s3Key}"`,
       );
+      // Atualização de metadados pode alterar `ambiente` (ex.: sair de
+      // null/"desconhecido" para um valor real) — recalcular os
+      // contadores para refletir o novo estado.
+      await this.atualizarEstatisticasLaudo(dto.laudoId);
       return this.buildImagemResponse(imagemAtualizada);
     }
 
@@ -333,6 +344,10 @@ export class UploadsService {
       this.logger.log(
         `[CONFIRM_WEB][DONE_INSERT] session=${dto.uploadSessionId || '-'} fileId=${dto.clientFileId || '-'} imageId=${imagemSalva.id} ambiente="${imagemSalva.ambiente}" ordem=${imagemSalva.ordem} s3Key="${imagemSalva.s3Key}"`,
       );
+      // Recalcular contadores do Laudo — sem isso, o dashboard ficava
+      // com `total_fotos`/`total_ambientes` desatualizados até a próxima
+      // deleção de imagem (que era o único caminho que recalculava).
+      await this.atualizarEstatisticasLaudo(dto.laudoId);
       return this.buildImagemResponse(imagemSalva);
     } catch (error) {
       const pgErrorCode = error.code || error.driverError?.code;
@@ -354,6 +369,10 @@ export class UploadsService {
         this.logger.log(
           `[CONFIRM_WEB][DONE_DUPLICATE_UPDATE] session=${dto.uploadSessionId || '-'} fileId=${dto.clientFileId || '-'} imageId=${imagemAtualizada.id} ambiente="${imagemAtualizada.ambiente}" ordem=${imagemAtualizada.ordem} s3Key="${imagemAtualizada.s3Key}"`,
         );
+        // Caminho de "race condition": a imagem foi inserida por outro
+        // processo entre nosso check e o insert. Garantir que os
+        // contadores do Laudo reflitam o estado atual após o save.
+        await this.atualizarEstatisticasLaudo(dto.laudoId);
         return this.buildImagemResponse(imagemAtualizada);
       }
       this.logger.error(
@@ -772,14 +791,33 @@ export class UploadsService {
 
     // 4. Recalcular contadores do Laudo (Fotos e Ambientes) para manter sincronizado com o App
     try {
-      const laudoId = imagem.laudoId;
+      await this.atualizarEstatisticasLaudo(imagem.laudoId);
+    } catch (error) {
+      console.error('Erro ao atualizar estatísticas do laudo após deleção:', error);
+      // Não falhar a request principal, é um efeito colateral
+    }
+  }
 
-      // Contar total de fotos restantes
+  /**
+   * Recalcula `laudos.total_fotos` e `laudos.total_ambientes` a partir
+   * do estado real de `imagens_laudo`. Chamado após qualquer mutação
+   * em imagens (upload, deleção) para manter os contadores
+   * denormalizados do card do dashboard alinhados com a Galeria.
+   *
+   * `total_fotos` = total de linhas em `imagens_laudo` para o laudo.
+   * `total_ambientes` = quantidade de `ambiente` distintos, excluindo
+   * nulos, vazios e o sentinela "desconhecido" (que a Galeria também
+   * filtra — ver `GaleriaImagens.tsx`).
+   *
+   * Falhas são logadas mas não propagadas: contadores são derivados e
+   * podem ser regenerados em qualquer chamada futura.
+   */
+  private async atualizarEstatisticasLaudo(laudoId: string): Promise<void> {
+    try {
       const totalFotos = await this.imagemLaudoRepository.count({
         where: { laudoId },
       });
 
-      // Contar total de ambientes distintos restantes
       const totalAmbientesQuery = await this.imagemLaudoRepository
         .createQueryBuilder('img')
         .select('COUNT(DISTINCT img.ambiente)', 'count')
@@ -793,14 +831,15 @@ export class UploadsService {
 
       const totalAmbientes = parseInt(totalAmbientesQuery?.count || '0', 10);
 
-      // Atualizar no Laudo
       await this.laudoRepository.update(laudoId, {
         totalFotos,
         totalAmbientes,
       });
     } catch (error) {
-      console.error('Erro ao atualizar estatísticas do laudo após deleção:', error);
-      // Não falhar a request principal, é um efeito colateral
+      console.error(
+        `Erro ao atualizar estatísticas do laudo ${laudoId}:`,
+        error,
+      );
     }
   }
 
