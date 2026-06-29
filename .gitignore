@@ -38,3 +38,7 @@ logs/
 # Testing
 coverage/
 .nyc_output/
+
+# Ferramentas locais (não versionar — poluem a árvore)
+openspec/
+.claude/
