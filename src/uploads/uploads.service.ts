@@ -16,7 +16,10 @@ import {
   DeleteObjectCommand,
   DeleteObjectsCommand,
 } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { Readable } from 'stream';
+import sharp from 'sharp';
 import { buildS3ClientConfig } from '../common/utils/s3-client.util';
 import { ImagemLaudo } from './entities/imagem-laudo.entity';
 import { Usuario } from '../users/entities/usuario.entity';
@@ -44,6 +47,13 @@ export interface PresignedUrlResponse {
 @Injectable()
 export class UploadsService {
   private static readonly MAX_ORDEM_INT = 2147483647;
+
+  // Prefixo dos derivados otimizados cacheados no S3 (reaproveitados em
+  // downloads subsequentes). O original NUNCA é sobrescrito.
+  private static readonly OPTIMIZED_PREFIX = 'derivados/optimized/';
+  // Qualidade do JPEG recomprimido para download: leve, porém com
+  // qualidade visual próxima do original.
+  private static readonly OPTIMIZED_JPEG_QUALITY = 85;
   private readonly logger = new Logger(UploadsService.name);
   private s3Client: S3Client;
   private bucketName: string;
@@ -1476,6 +1486,174 @@ ${itemsListString}`;
       }
     }
     return null;
+  }
+
+  // ===================== DOWNLOAD / OTIMIZAÇÃO =====================
+
+  /**
+   * Busca um objeto do S3 e retorna seu conteúdo como Buffer.
+   * Retorna `null` quando a chave não existe (404/NoSuchKey).
+   */
+  private async tryGetObjectBuffer(s3Key: string): Promise<Buffer | null> {
+    try {
+      const response = await this.s3Client.send(
+        new GetObjectCommand({ Bucket: this.bucketName, Key: s3Key }),
+      );
+      const body = response.Body as { transformToByteArray: () => Promise<Uint8Array> };
+      const bytes = await body.transformToByteArray();
+      return Buffer.from(bytes);
+    } catch (error) {
+      const status = error?.$metadata?.httpStatusCode;
+      if (error?.name === 'NoSuchKey' || error?.name === 'NotFound' || status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Retorna a versão OTIMIZADA (recomprimida) de uma imagem, em JPEG mais
+   * leve preservando a qualidade visual. Usa cache no S3: se o derivado já
+   * existe em `derivados/optimized/{s3Key}`, ele é reutilizado; caso
+   * contrário, recomprime o original via sharp e grava o derivado.
+   * O objeto original no S3 nunca é alterado.
+   */
+  async getOptimizedImageBuffer(s3Key: string): Promise<Buffer> {
+    const cacheKey = `${UploadsService.OPTIMIZED_PREFIX}${s3Key}`;
+
+    const cached = await this.tryGetObjectBuffer(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const original = await this.tryGetObjectBuffer(s3Key);
+    if (!original) {
+      throw new NotFoundException(`Imagem não encontrada no S3: ${s3Key}`);
+    }
+
+    let optimized: Buffer;
+    try {
+      optimized = await sharp(original)
+        .rotate() // auto-orienta pelo EXIF antes de descartar os metadados
+        .jpeg({ quality: UploadsService.OPTIMIZED_JPEG_QUALITY, mozjpeg: true })
+        .toBuffer();
+    } catch (error) {
+      this.logger.warn(
+        `[DOWNLOAD] Falha ao otimizar ${s3Key} (${error?.message}). Usando original.`,
+      );
+      // Se a recompressão falhar (ex.: arquivo não-imagem), entrega o original
+      // para não bloquear o download.
+      return original;
+    }
+
+    // Cacheia o derivado (best-effort: falha aqui não impede o download).
+    try {
+      await this.s3Client.send(
+        new PutObjectCommand({
+          Bucket: this.bucketName,
+          Key: cacheKey,
+          Body: optimized,
+          ContentType: 'image/jpeg',
+        }),
+      );
+    } catch (error) {
+      this.logger.warn(`[DOWNLOAD] Falha ao cachear derivado ${cacheKey}: ${error?.message}`);
+    }
+
+    return optimized;
+  }
+
+  /**
+   * Download de uma imagem específica, otimizada, com validação de
+   * permissão (dono ou admin/dev). Retorna o buffer pronto para envio e
+   * um nome de arquivo amigável.
+   */
+  async downloadImagem(
+    userId: string,
+    imagemId: string,
+    userRole: UserRole,
+  ): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
+    const imagem = await this.imagemLaudoRepository.findOne({
+      where: { id: imagemId },
+    });
+
+    if (!imagem) {
+      throw new NotFoundException('Imagem não encontrada');
+    }
+
+    const isOwner = imagem.usuarioId === userId;
+    const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
+    if (!isOwner && !isAdminOrDev) {
+      throw new ForbiddenException('Você não tem permissão para baixar esta imagem');
+    }
+
+    const buffer = await this.getOptimizedImageBuffer(imagem.s3Key);
+    return {
+      buffer,
+      filename: UploadsService.buildImageDownloadFilename(imagem),
+      contentType: 'image/jpeg',
+    };
+  }
+
+  /**
+   * Sobe um ZIP para o S3 em streaming (multipart), sem carregar o
+   * arquivo inteiro em memória. Usado pelo worker de geração de ZIP.
+   */
+  async streamZipToS3(s3Key: string, body: Readable): Promise<void> {
+    const upload = new Upload({
+      client: this.s3Client,
+      params: {
+        Bucket: this.bucketName,
+        Key: s3Key,
+        Body: body,
+        ContentType: 'application/zip',
+      },
+    });
+    await upload.done();
+  }
+
+  /**
+   * Gera uma presigned URL de download para um objeto do S3, forçando o
+   * download no navegador com o nome de arquivo informado.
+   * Validade padrão: 24h (mesmo padrão do PDF).
+   */
+  async getSignedDownloadUrl(
+    s3Key: string,
+    downloadFilename: string,
+    expiresIn = 86400,
+  ): Promise<string> {
+    const safeName = downloadFilename.replace(/["\\\r\n]/g, '_');
+    const command = new GetObjectCommand({
+      Bucket: this.bucketName,
+      Key: s3Key,
+      ResponseContentDisposition: `attachment; filename="${safeName}"`,
+    });
+    return getSignedUrl(this.s3Client, command, { expiresIn });
+  }
+
+  /**
+   * Monta um nome de arquivo amigável e seguro para uma imagem baixada.
+   * Ex.: "3 - Cozinha_05_a1b2c3d4.jpg".
+   */
+  static buildImageDownloadFilename(imagem: ImagemLaudo): string {
+    const ambiente = UploadsService.sanitizeFilenamePart(imagem.ambiente || 'foto');
+    const ordem = String(imagem.ordem ?? 0).padStart(2, '0');
+    const sufixo = (imagem.id || '').replace(/-/g, '').substring(0, 8);
+    return `${ambiente}_${ordem}_${sufixo}.jpg`;
+  }
+
+  /**
+   * Remove caracteres problemáticos para nomes de arquivo/pasta dentro do
+   * ZIP e no Content-Disposition, preservando legibilidade.
+   */
+  static sanitizeFilenamePart(value: string): string {
+    const limpo = (value || '')
+      .replace(/[\u0000-\u001F\u007F]/g, '') // remove caracteres de controle
+      .replace(/[\\/:*?"<>|]/g, '_') // remove caracteres ilegais em path/filename
+      .replace(/\s+/g, ' ')
+      .trim()
+      .substring(0, 120);
+    return limpo || 'sem_nome';
   }
 
   private async buildImagemResponse(img: ImagemLaudo): Promise<any> {

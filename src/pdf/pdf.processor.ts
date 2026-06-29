@@ -20,6 +20,11 @@ export class PdfProcessor implements OnModuleInit {
             message.laudoId,
             message.usuarioId,
             message.modoPreviewPdf,
+            {
+              margemPagina: message.margemPagina,
+              espacamentoHorizontal: message.espacamentoHorizontal,
+              espacamentoVertical: message.espacamentoVertical,
+            },
           );
         });
         this.logger.log('✅ PdfProcessor ouvindo fila de PDFs');

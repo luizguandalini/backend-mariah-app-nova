@@ -240,6 +240,11 @@ export class LaudosController {
       user.id,
       user.role,
       body?.modoPreviewPdf,
+      {
+        margemPagina: body?.margemPagina,
+        espacamentoHorizontal: body?.espacamentoHorizontal,
+        espacamentoVertical: body?.espacamentoVertical,
+      },
     );
   }
 

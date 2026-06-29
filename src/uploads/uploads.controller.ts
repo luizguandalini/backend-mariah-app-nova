@@ -9,7 +9,9 @@ import {
   Delete,
   Query,
   Patch,
+  Res,
 } from '@nestjs/common';
+import { FastifyReply } from 'fastify';
 import { ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UploadsService } from './uploads.service';
@@ -113,6 +115,28 @@ export class UploadsController {
   async getViewUrl(@Request() req, @Param('id') imagemId: string) {
     const url = await this.uploadsService.getViewUrl(req.user.id, imagemId, req.user.role);
     return { url };
+  }
+
+  /**
+   * Download de uma imagem específica, otimizada (mais leve), com headers
+   * de download. Mantém o original intacto no S3.
+   * GET /uploads/image/:id/download
+   */
+  @Get('image/:id/download')
+  async downloadImagem(
+    @Request() req,
+    @Param('id') imagemId: string,
+    @Res() reply: FastifyReply,
+  ) {
+    const { buffer, filename, contentType } = await this.uploadsService.downloadImagem(
+      req.user.id,
+      imagemId,
+      req.user.role,
+    );
+    reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+    reply.header('Content-Length', buffer.length);
+    reply.type(contentType);
+    reply.send(buffer);
   }
 
   /**

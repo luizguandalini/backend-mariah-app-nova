@@ -69,6 +69,11 @@ export class LaudosService {
     userId: string,
     userRole: UserRole,
     modoPreviewPdf?: 'detalhado' | 'compacto',
+    layoutOverrides?: {
+      margemPagina?: number;
+      espacamentoHorizontal?: number;
+      espacamentoVertical?: number;
+    },
   ): Promise<{ message: string; status: string }> {
     const laudo = await this.findOne(laudoId);
 
@@ -103,6 +108,9 @@ export class LaudosService {
       laudoId,
       usuarioId: userId,
       modoPreviewPdf,
+      margemPagina: layoutOverrides?.margemPagina,
+      espacamentoHorizontal: layoutOverrides?.espacamentoHorizontal,
+      espacamentoVertical: layoutOverrides?.espacamentoVertical,
       priority: 5, // Prioridade padrão
     });
 
