@@ -6,6 +6,12 @@ export interface QueueMessage {
   usuarioId: string;
   priority?: number;
   modoPreviewPdf?: 'detalhado' | 'compacto';
+  // Overrides de layout vindos do preview (px). Quando presentes, o PDF é
+  // gerado com os mesmos valores exibidos no preview, garantindo que o
+  // tamanho das imagens seja idêntico.
+  margemPagina?: number;
+  espacamentoHorizontal?: number;
+  espacamentoVertical?: number;
 }
 
 @Injectable()

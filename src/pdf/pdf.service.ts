@@ -114,6 +114,11 @@ export class PdfService {
     laudoId: string,
     userId: string,
     modoPreviewPdf?: 'detalhado' | 'compacto',
+    layoutOverrides?: {
+      margemPagina?: number;
+      espacamentoHorizontal?: number;
+      espacamentoVertical?: number;
+    },
   ): Promise<string> {
     this.updateStatus(laudoId, 'PROCESSING', 0);
 
@@ -165,10 +170,22 @@ export class PdfService {
       const modoPdf = modoPreviewPdf || userConfig.modoPreviewPdf || 'detalhado';
       // Consolida a config do usuário com dados por-laudo (rodapé) em um único
       // objeto PdfConfig consumido pelo buildHtml.
+      // Overrides de layout vindos do preview têm prioridade sobre a config
+      // persistida do usuário: assim o PDF usa EXATAMENTE os mesmos valores
+      // de margem/espaçamento que o preview está exibindo, e o tamanho das
+      // imagens fica idêntico. Sem isso, o backend cairia na config do DB e
+      // as fotos sairiam de tamanho diferente do preview.
       const config: PdfConfig = {
-        margemPagina: userConfig.margemPagina ?? 20,
-        espacamentoHorizontal: userConfig.espacamentoHorizontal ?? 10,
-        espacamentoVertical: userConfig.espacamentoVertical ?? 15,
+        margemPagina:
+          layoutOverrides?.margemPagina ?? userConfig.margemPagina ?? 20,
+        espacamentoHorizontal:
+          layoutOverrides?.espacamentoHorizontal ??
+          userConfig.espacamentoHorizontal ??
+          10,
+        espacamentoVertical:
+          layoutOverrides?.espacamentoVertical ??
+          userConfig.espacamentoVertical ??
+          15,
         modoPreviewPdf: modoPdf,
         metodologiaTexto: userConfig.metodologiaTexto ?? null,
         metodologiaEntradaTexto: userConfig.metodologiaEntradaTexto ?? null,
