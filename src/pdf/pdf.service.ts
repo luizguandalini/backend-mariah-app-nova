@@ -1122,7 +1122,9 @@ export class PdfService {
         .download-fotos-section { margin-top: 24px; border-top: 2px solid #000; padding-top: 10px; }
         .download-fotos-titulo { font-size: 13px; font-weight: 700; text-transform: uppercase; margin-bottom: 10px; }
         .download-fotos-content { display: flex; align-items: flex-start; gap: 20px; }
-        .download-fotos-text { flex: 1; font-size: 11px; line-height: 1.6; text-align: justify; color: #000; }
+        .download-fotos-coluna { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+        .download-fotos-text { font-size: 11px; line-height: 1.6; text-align: justify; color: #000; }
+        .download-fotos-link { margin-top: 8px; font-size: 10px; line-height: 1.4; color: #2563eb; text-decoration: underline; word-break: break-all; overflow-wrap: anywhere; }
         .download-fotos-qrcode img { width: 100px; height: 100px; display: block; }
 
         /* ENCERRAMENTO */
@@ -1657,8 +1659,8 @@ export class PdfService {
       process.env[`${process.env.NODE_ENV === 'production' ? 'PROD' : 'DEV'}_FRONTEND_URL`] ||
       process.env.FRONTEND_URL ||
       'http://localhost:5173';
-    const galeriaUrl = `${frontendUrl}/dashboard/laudos/${laudo.id}/galeria`;
-    const qrCodeDataUrl = await QRCode.toDataURL(galeriaUrl, { width: 100, margin: 1 });
+    const driveUrl = `${frontendUrl}/dashboard/laudos/${laudo.id}/drive`;
+    const qrCodeDataUrl = await QRCode.toDataURL(driveUrl, { width: 100, margin: 1 });
 
     return `
          <div class="page-container page-standard">
@@ -1677,14 +1679,17 @@ export class PdfService {
             <div class="download-fotos-section">
                 <div class="download-fotos-titulo">DOWNLOAD DE FOTOS</div>
                 <div class="download-fotos-content">
-                    <p class="download-fotos-text">
-                        Para maior conveniência e acessibilidade, as fotos poderão ser baixadas diretamente através do
-                        QR Code fornecido neste documento. Ressaltamos que as imagens obtidas são adequadas para outras
-                        análises e avaliações, independentemente do que estiver registrado em texto neste laudo. Esta
-                        abordagem garante uma verificação visual completa e transparente das condições do imóvel.
-                    </p>
+                    <div class="download-fotos-coluna">
+                        <p class="download-fotos-text">
+                            Para maior conveniência e acessibilidade, as fotos poderão ser baixadas diretamente através do
+                            QR Code fornecido neste documento. Ressaltamos que as imagens obtidas são adequadas para outras
+                            análises e avaliações, independentemente do que estiver registrado em texto neste laudo. Esta
+                            abordagem garante uma verificação visual completa e transparente das condições do imóvel.
+                        </p>
+                        <a class="download-fotos-link" href="${driveUrl}">${driveUrl}</a>
+                    </div>
                     <div class="download-fotos-qrcode">
-                        <img src="${qrCodeDataUrl}" alt="QR Code Galeria" />
+                        <img src="${qrCodeDataUrl}" alt="QR Code Drive" />
                     </div>
                 </div>
             </div>
