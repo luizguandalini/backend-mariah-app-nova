@@ -21,6 +21,7 @@ import { Usuario } from './users/entities/usuario.entity';
 import { NotificationsModule } from './notifications/notifications.module';
 import { KanbanModule } from './kanban/kanban.module';
 import { ContestacaoModule } from './contestacao/contestacao.module';
+import { DownloadModule } from './download/download.module';
 
 @Module({
   imports: [
@@ -103,6 +104,7 @@ import { ContestacaoModule } from './contestacao/contestacao.module';
     NotificationsModule,
     KanbanModule,
     ContestacaoModule,
+    DownloadModule,
   ],
   controllers: [AppController],
   providers: [AppService, DatabaseSeedService, SchemaCompatibilityService],

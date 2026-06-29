@@ -14,6 +14,20 @@ export interface QueueMessage {
   espacamentoVertical?: number;
 }
 
+/**
+ * Mensagem da fila de DOWNLOAD (geração assíncrona de ZIP).
+ * `jobId` referencia o registro em `download_jobs`; `ambiente` é
+ * preenchido apenas quando `tipo = 'ambiente'`.
+ */
+export interface DownloadQueueMessage {
+  jobId: string;
+  laudoId: string;
+  usuarioId: string;
+  tipo: 'ambiente' | 'laudo';
+  ambiente?: string;
+  priority?: number;
+}
+
 @Injectable()
 export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RabbitMQService.name);
@@ -34,6 +48,11 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
   private readonly PDF_QUEUE_NAME = 'laudo_pdf_queue';
   private readonly PDF_EXCHANGE_NAME = 'laudo_pdf_exchange';
   private readonly PDF_ROUTING_KEY = 'pdf_generation';
+
+  // Configurações da fila de DOWNLOAD (ZIP de fotos)
+  private readonly DOWNLOAD_QUEUE_NAME = 'laudo_download_queue';
+  private readonly DOWNLOAD_EXCHANGE_NAME = 'laudo_download_exchange';
+  private readonly DOWNLOAD_ROUTING_KEY = 'download_zip';
   
   // URL de conexão (pode ser sobrescrita por variável de ambiente)
   private readonly RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
@@ -89,7 +108,23 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
 
       await this.channel.bindQueue(this.PDF_QUEUE_NAME, this.PDF_EXCHANGE_NAME, this.PDF_ROUTING_KEY);
 
-      // Prefetch global (ajustar conforme necessidade, pdf é pesado, talvez 1 seja ideal mesmo)
+      // === SETUP FILA DE DOWNLOAD ===
+      await this.channel.assertExchange(this.DOWNLOAD_EXCHANGE_NAME, 'direct', {
+        durable: true,
+      });
+
+      await this.channel.assertQueue(this.DOWNLOAD_QUEUE_NAME, {
+        durable: true,
+        maxPriority: 5,
+      });
+
+      await this.channel.bindQueue(
+        this.DOWNLOAD_QUEUE_NAME,
+        this.DOWNLOAD_EXCHANGE_NAME,
+        this.DOWNLOAD_ROUTING_KEY,
+      );
+
+      // Prefetch global (ajustar conforme necessidade, pdf/zip são pesados, 1 é ideal)
       await this.channel.prefetch(1);
 
       this.logger.log(`✅ Conectado ao RabbitMQ: ${this.RABBITMQ_URL}`);
@@ -318,6 +353,80 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
       this.logger.log('🔄 Consumer RabbitMQ iniciado (PDF)');
     } catch (error) {
       this.logger.error('Erro ao iniciar consumer PDF RabbitMQ:', error);
+    }
+  }
+
+  /**
+   * Adiciona uma mensagem à fila de DOWNLOAD (geração de ZIP)
+   */
+  async addToDownloadQueue(message: DownloadQueueMessage): Promise<boolean> {
+    if (!this.isConnected()) {
+      this.logger.warn('RabbitMQ não conectado - não foi possível adicionar à fila de Download');
+      return false;
+    }
+
+    try {
+      const msgBuffer = Buffer.from(JSON.stringify(message));
+
+      this.channel!.publish(
+        this.DOWNLOAD_EXCHANGE_NAME,
+        this.DOWNLOAD_ROUTING_KEY,
+        msgBuffer,
+        {
+          persistent: true,
+          priority: message.priority || 5,
+          contentType: 'application/json',
+          timestamp: Date.now(),
+        },
+      );
+
+      this.logger.log(
+        `📦 Job de download ${message.jobId} (laudo ${message.laudoId}) adicionado à fila RabbitMQ (Download)`,
+      );
+      return true;
+    } catch (error) {
+      this.logger.error('Erro ao adicionar à fila de Download RabbitMQ:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Consome mensagens da fila de DOWNLOAD
+   * @param handler Função que processa cada mensagem
+   */
+  async consumeDownload(handler: (message: DownloadQueueMessage) => Promise<void>): Promise<void> {
+    if (!this.isConnected()) {
+      this.logger.warn('RabbitMQ não conectado - consumo de Download não iniciado');
+      return;
+    }
+
+    try {
+      await this.channel!.consume(
+        this.DOWNLOAD_QUEUE_NAME,
+        async (msg) => {
+          if (!msg) return;
+
+          try {
+            const message: DownloadQueueMessage = JSON.parse(msg.content.toString());
+            this.logger.log(`📥 Gerando ZIP para job ${message.jobId} (laudo ${message.laudoId})`);
+
+            await handler(message);
+
+            this.channel!.ack(msg);
+            this.logger.log(`✅ ZIP do job ${message.jobId} gerado com sucesso`);
+          } catch (error) {
+            this.logger.error(`❌ Erro ao gerar ZIP: ${error.message}`);
+            // Não reenfileirar indefinidamente: 1 retry (igual à fila de PDF).
+            const requeue = msg.fields.redelivered === false;
+            this.channel!.nack(msg, false, requeue);
+          }
+        },
+        { noAck: false },
+      );
+
+      this.logger.log('🔄 Consumer RabbitMQ iniciado (Download)');
+    } catch (error) {
+      this.logger.error('Erro ao iniciar consumer Download RabbitMQ:', error);
     }
   }
 
