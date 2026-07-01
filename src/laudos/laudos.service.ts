@@ -822,6 +822,57 @@ export class LaudosService {
     };
   }
 
+  /**
+   * Listagem global paginada para a navegação "Drive" (DEV/ADMIN): todos os
+   * laudos do sistema, mais recente primeiro, com dados do dono e um recorte
+   * opcional por intervalo de `created_at` (usado pelo modo cronológico
+   * ano/mês). Reusa `getLaudoImageStatsMap`/`mapLaudoListItem` para manter o
+   * mesmo formato de item consumido pela UI, e conta o total antes do OFFSET
+   * (trava a página no total real, evitando OFFSET absurdo).
+   */
+  async findAllForDrive(
+    page: number = 1,
+    limit: number = 20,
+    range?: { inicio?: Date; fim?: Date },
+  ): Promise<PaginatedLaudosResult> {
+    const sanitizedPage = Math.max(1, Number(page) || 1);
+    const sanitizedLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+
+    const query = this.laudoRepository
+      .createQueryBuilder('laudo')
+      .leftJoinAndSelect('laudo.usuario', 'usuario');
+
+    if (range?.inicio) {
+      query.andWhere('laudo.created_at >= :inicio', { inicio: range.inicio });
+    }
+    if (range?.fim) {
+      query.andWhere('laudo.created_at < :fim', { fim: range.fim });
+    }
+
+    const total = await query.getCount();
+    const lastPage = total === 0 ? 0 : Math.ceil(total / sanitizedLimit);
+    const safePage = lastPage === 0 ? 1 : Math.min(sanitizedPage, lastPage);
+
+    if (total === 0) {
+      return { data: [], total, page: safePage, lastPage: 0 };
+    }
+
+    const laudos = await query
+      .orderBy('laudo.createdAt', 'DESC')
+      .skip((safePage - 1) * sanitizedLimit)
+      .take(sanitizedLimit)
+      .getMany();
+
+    const statsMap = await this.getLaudoImageStatsMap(laudos.map((l) => l.id));
+
+    return {
+      data: laudos.map((l) => this.mapLaudoListItem(l, statsMap, true)),
+      total,
+      page: safePage,
+      lastPage,
+    };
+  }
+
   private parseSearchTerm(search?: string): string | undefined {
     if (!search) {
       return undefined;

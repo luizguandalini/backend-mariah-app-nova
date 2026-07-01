@@ -42,3 +42,4 @@ coverage/
 # Ferramentas locais (não versionar — poluem a árvore)
 openspec/
 .claude/
+.playwright-mcp/
