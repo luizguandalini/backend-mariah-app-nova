@@ -22,6 +22,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { KanbanModule } from './kanban/kanban.module';
 import { ContestacaoModule } from './contestacao/contestacao.module';
 import { DownloadModule } from './download/download.module';
+import { DriveModule } from './drive/drive.module';
 
 @Module({
   imports: [
@@ -105,6 +106,7 @@ import { DownloadModule } from './download/download.module';
     KanbanModule,
     ContestacaoModule,
     DownloadModule,
+    DriveModule,
   ],
   controllers: [AppController],
   providers: [AppService, DatabaseSeedService, SchemaCompatibilityService],
