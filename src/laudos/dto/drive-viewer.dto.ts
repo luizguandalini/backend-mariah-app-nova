@@ -6,9 +6,17 @@ import { ApiProperty } from '@nestjs/swagger';
  * (`GET /laudos/:id/ambientes-web` e
  * `GET /uploads/laudo/:laudoId/ambiente/:ambiente/imagens`).
  *
- * Quando o chamador é dono OU `DEV`/`ADMIN`, todos os `can*` são `true`.
- * Quando o chamador é anônimo ou logado não-dono não-admin, todos os
- * `can*` são `false` (modo visualização).
+ * Regras por flag:
+ * - `isOwner`, `isAdmin`: binário (reflete o `req.user`/`laudo.usuarioId`).
+ * - `canWrite`, `canDelete`: `true` só para dono OU `DEV`/`ADMIN`.
+ *   Anônimo e logado não-dono não-admin recebem `false` (modo visualização
+ *   — não podem mutar o laudo, mas podem ler).
+ * - `canDownloadFoto`, `canRequestAmbienteZip`, `canRequestLaudoZip`:
+ *   `true` para **todos** os chamadores que conseguiram ler a drive view
+ *   (anônimo, logado não-dono, dono, admin/dev). Os endpoints de download
+ *   foram liberalizados pela change `enable-download-in-visualization`:
+ *   `GET /uploads/image/:id/download`, `POST /download/laudo/:laudoId/ambiente/:amb`,
+ *   `POST /download/laudo/:laudoId`, `GET /download/job/:jobId`.
  *
  * O frontend usa esses flags para esconder/desabilitar botões de ação.
  * A trava **real** de escrita continua sendo o `JwtAuthGuard` +

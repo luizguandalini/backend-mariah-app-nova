@@ -1598,15 +1598,24 @@ ${itemsListString}`;
   }
 
   /**
-   * Download de uma imagem específica, otimizada, com validação de
-   * permissão (dono ou admin/dev). Retorna o buffer pronto para envio e
-   * um nome de arquivo amigável.
+   * Download de uma imagem específica, otimizada, retornando o buffer
+   * pronto para envio e um nome de arquivo amigável.
+   *
+   * Liberalizado pela change `enable-download-in-visualization`:
+   * - `currentUser === undefined` (anônimo via drive view): retorna
+   *   o buffer diretamente, sem checagem de ownership. A UI já
+   *   renderizou a página da drive view aberta.
+   * - `currentUser` presente: mantém a checagem `imagem.usuarioId ===
+   *   currentUser.id` OU role DEV/ADMIN como defesa em profundidade.
+   *   Outro usuário logado (não-dono) que conheça o `:id` recebe `403`.
+   *   O byte continua acessível pela URL presigned em `img.url` de
+   *   qualquer jeito — esta defesa cobre especificamente o caminho
+   *   `/download` (audit-logado).
    */
   async downloadImagem(
-    userId: string,
     imagemId: string,
-    userRole: UserRole,
-  ): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
+    currentUser?: { id: string; role?: string },
+  ): Promise<{ buffer: Buffer; filename: string; contentType: string; laudoId: string }> {
     const imagem = await this.imagemLaudoRepository.findOne({
       where: { id: imagemId },
     });
@@ -1615,10 +1624,13 @@ ${itemsListString}`;
       throw new NotFoundException('Imagem não encontrada');
     }
 
-    const isOwner = imagem.usuarioId === userId;
-    const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
-    if (!isOwner && !isAdminOrDev) {
-      throw new ForbiddenException('Você não tem permissão para baixar esta imagem');
+    if (currentUser) {
+      const isOwner = imagem.usuarioId === currentUser.id;
+      const isAdminOrDev =
+        currentUser.role === UserRole.DEV || currentUser.role === UserRole.ADMIN;
+      if (!isOwner && !isAdminOrDev) {
+        throw new ForbiddenException('Você não tem permissão para baixar esta imagem');
+      }
     }
 
     const buffer = await this.getOptimizedImageBuffer(imagem.s3Key);
@@ -1626,6 +1638,7 @@ ${itemsListString}`;
       buffer,
       filename: UploadsService.buildImageDownloadFilename(imagem),
       contentType: 'image/jpeg',
+      laudoId: imagem.laudoId,
     };
   }
 

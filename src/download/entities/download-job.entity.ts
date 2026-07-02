@@ -43,12 +43,16 @@ export class DownloadJob {
   @Column({ name: 'laudo_id', type: 'uuid' })
   laudoId: string;
 
-  @ManyToOne(() => Usuario, { onDelete: 'CASCADE' })
+  // Pode ser `null` quando o job foi enfileirado por um chamador anônimo
+  // via drive view liberalizada (`POST /download/laudo/...` sem token).
+  // A coluna foi tornada nullable pela migration
+  // `MakeDownloadJobsUsuarioIdNullable1780800000000`.
+  @ManyToOne(() => Usuario, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'usuario_id' })
-  usuario: Usuario;
+  usuario: Usuario | null;
 
-  @Column({ name: 'usuario_id', type: 'uuid' })
-  usuarioId: string;
+  @Column({ name: 'usuario_id', type: 'uuid', nullable: true })
+  usuarioId: string | null;
 
   @Column({ type: 'varchar', length: 20 })
   tipo: DownloadJobTipo;
