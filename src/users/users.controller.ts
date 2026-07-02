@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Body,
   Param,
   Delete,
@@ -14,6 +15,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
+import { ChangeRoleDto } from './dto/change-role.dto';
 import { UpdateConfiguracoesPdfDto } from './dto/update-configuracoes-pdf.dto';
 import { UpdatePushTokenDto } from './dto/update-push-token.dto';
 import { FotoPerfilPresignedDto, ConfirmFotoPerfilDto } from './dto/foto-perfil-presigned.dto';
@@ -150,6 +152,28 @@ export class UsersController {
   @ApiResponse({ status: 403, description: 'Sem permissão' })
   async remove(@Param('id') id: string): Promise<void> {
     return await this.usersService.remove(id);
+  }
+
+  @Patch(':id/role')
+  @Roles(UserRole.DEV, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Alterar o role (nível de acesso) de um usuário (DEV/ADMIN)',
+    description:
+      'Permite promover USUARIO -> ADMIN e reverter ADMIN -> USUARIO. ' +
+      'O contador quantidadeImagens é preservado intacto em qualquer transição. ' +
+      'Não permite tocar em usuários DEV nem promover ninguém a DEV.',
+  })
+  @ApiParam({ name: 'id', description: 'ID do usuário alvo' })
+  @ApiResponse({ status: 200, description: 'Role alterado com sucesso' })
+  @ApiResponse({ status: 400, description: 'Transição inválida ou no-op' })
+  @ApiResponse({ status: 403, description: 'Sem permissão' })
+  @ApiResponse({ status: 404, description: 'Usuário não encontrado' })
+  async changeRole(
+    @Param('id') id: string,
+    @Body() dto: ChangeRoleDto,
+    @CurrentUser() user: any,
+  ): Promise<Usuario> {
+    return await this.usersService.changeRole(id, dto, user);
   }
 
   @Get('configuracoes-pdf')

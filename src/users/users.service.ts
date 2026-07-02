@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
@@ -11,10 +11,12 @@ import { RefreshToken } from '../auth/entities/refresh-token.entity';
 import { WebLoginTicket } from '../auth/entities/web-login-ticket.entity';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
+import { ChangeRoleDto } from './dto/change-role.dto';
 import { UpdateConfiguracoesPdfDto } from './dto/update-configuracoes-pdf.dto';
 import { UserRole } from './enums/user-role.enum';
 import { UploadsService } from '../uploads/uploads.service';
 import { ContestacaoService } from '../contestacao/contestacao.service';
+import { canChangeRole } from './role-policy';
 
 @Injectable()
 export class UsersService {
@@ -124,6 +126,14 @@ export class UsersService {
       throw new ForbiddenException('Não é permitido criar ou alterar para role DEV');
     }
 
+    // Toda alteração de role deve passar pelo endpoint dedicado PATCH /users/:id/role.
+    // Direciona erros de auditoria e validação para um único caminho.
+    if (updateUsuarioDto.role !== undefined) {
+      throw new ForbiddenException(
+        'Alteração de role deve ser feita via PATCH /users/:id/role',
+      );
+    }
+
     // Não permite alterar role de um DEV existente
     if (usuario.role === UserRole.DEV && !isEditingSelf) {
       throw new ForbiddenException('Não é permitido alterar dados de usuário DEV');
@@ -180,6 +190,59 @@ export class UsersService {
 
     usuario.quantidadeImagens += quantidade;
     return await this.usuarioRepository.save(usuario);
+  }
+
+  /**
+   * Change the role of a target user.
+   *
+   * Authorization is delegated to `canChangeRole`. Self-edit, same-role
+   * no-ops, and DEV-target/DEDESTINATION attempts are rejected here. The
+   * `quantidadeImagens` (image-credit) counter is intentionally NOT touched
+   * by this method — the field is preserved bit-for-bit across role
+   * transitions per the OpenSpec change.
+   */
+  async changeRole(
+    id: string,
+    dto: ChangeRoleDto,
+    currentUser: any,
+  ): Promise<Usuario> {
+    if (currentUser.id === id) {
+      throw new BadRequestException('Não é permitido alterar o próprio role');
+    }
+
+    const target = await this.findOne(id);
+
+    if (target.role === dto.role) {
+      throw new BadRequestException(
+        `Usuário já possui o role ${dto.role}; transição sem efeito`,
+      );
+    }
+
+    if (!canChangeRole(currentUser.role, target.role, dto.role)) {
+      throw new ForbiddenException(
+        `Você não tem permissão para alterar o role deste usuário para ${dto.role}`,
+      );
+    }
+
+    const oldRole = target.role;
+    target.role = dto.role;
+    // Partial save: only the role field. quantidadeImagens is preserved.
+    await this.usuarioRepository.save(target);
+
+    this.logger.log(
+      JSON.stringify({
+        event: 'roleChange',
+        actorId: currentUser.id,
+        actorEmail: currentUser.email,
+        targetId: target.id,
+        targetEmail: target.email,
+        from: oldRole,
+        to: target.role,
+        timestamp: new Date().toISOString(),
+      }),
+    );
+
+    return target;
   }
 
   async remove(id: string): Promise<void> {

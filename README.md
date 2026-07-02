@@ -64,6 +64,27 @@ docker compose -f docker-compose.prod.yml up -d --build
 | GET | `/health` | Health check (usado por load balancers) |
 | GET | `/api/docs` | Documentação Swagger |
 
+### Usuários
+
+| Método | Rota | Roles permitidos | Descrição |
+|--------|------|------------------|-----------|
+| `PATCH` | `/users/:id/role` | `DEV`, `ADMIN` | Altera o nível de acesso (role) de um usuário. Veja a matriz abaixo. |
+
+#### Matriz de autorização para troca de role
+
+| Ator \ (target → novo) | `USUARIO → ADMIN` | `ADMIN → USUARIO` | `* → DEV` | `DEV → *` |
+|------------------------|:-----------------:|:-----------------:|:---------:|:---------:|
+| `DEV`                  | ✅                | ✅                | ❌        | ❌        |
+| `ADMIN`                | ✅                | ✅                | ❌        | ❌        |
+| `USUARIO` / `FUNCIONARIO` | ❌             | ❌                | ❌        | ❌        |
+
+Regras adicionais (validadas no service):
+
+- Auto-edição é rejeitada com `400 Bad Request`.
+- Transição para o mesmo role (no-op) é rejeitada com `400 Bad Request`.
+- `DEV` é inalterável pela API.
+- O campo `quantidadeImagens` (saldo de créditos de imagens) é preservado intacto em qualquer transição.
+
 ## 🚀 Deploy para Produção (EC2)
 
 ### Pré-requisitos no EC2
