@@ -64,6 +64,55 @@ docker compose -f docker-compose.prod.yml up -d --build
 | GET | `/health` | Health check (usado por load balancers) |
 | GET | `/api/docs` | Documentação Swagger |
 
+### Usuários
+
+| Método | Rota | Roles permitidos | Descrição |
+|--------|------|------------------|-----------|
+| `PATCH` | `/users/:id/role` | `DEV`, `ADMIN` | Altera o nível de acesso (role) de um usuário. Veja a matriz abaixo. |
+
+#### Matriz de autorização para troca de role
+
+| Ator \ (target → novo) | `USUARIO → ADMIN` | `ADMIN → USUARIO` | `* → DEV` | `DEV → *` |
+|------------------------|:-----------------:|:-----------------:|:---------:|:---------:|
+| `DEV`                  | ✅                | ✅                | ❌        | ❌        |
+| `ADMIN`                | ✅                | ✅                | ❌        | ❌        |
+| `USUARIO` / `FUNCIONARIO` | ❌             | ❌                | ❌        | ❌        |
+
+Regras adicionais (validadas no service):
+
+- Auto-edição é rejeitada com `400 Bad Request`.
+- Transição para o mesmo role (no-op) é rejeitada com `400 Bad Request`.
+- `DEV` é inalterável pela API.
+- O campo `quantidadeImagens` (saldo de créditos de imagens) é preservado intacto em qualquer transição.
+
+#### Deleção de usuários (soft delete)
+
+`DELETE /users/:id` é a forma suportada de remover um usuário. A deleção é **soft**: a linha do `usuarios` permanece no banco com `deleted_at` populado e `ativo = false`. Laudos, imagens, contestações e demais registros de domínio **não** são apagados nem desatrelados — eles continuam apontando para o id original.
+
+Regras (validadas em `users.service.softDelete` e `user-access-policy.ts`):
+
+| Ator \ Alvo | `USUARIO` | `ADMIN` | `DEV` | si mesmo |
+|-------------|:---------:|:-------:|:-----:|:--------:|
+| `ADMIN`     | ✅        | ✅      | ❌    | ❌       |
+| `DEV`       | ✅        | ✅      | ❌    | ❌       |
+| `USUARIO`   | ❌        | ❌      | ❌    | ❌       |
+
+Respostas:
+
+- `204 No Content` em deleção bem-sucedida.
+- `400 Bad Request` se o ator tentar deletar a si mesmo.
+- `403 Forbidden` se o alvo for `DEV` ou se o ator não for `ADMIN`/`DEV`.
+- `404 Not Found` se o id não existir (ou já estiver soft-deletado).
+
+O endpoint `GET /users` e `GET /users/:id` filtram `deleted_at IS NULL` e adicionam, em cada linha, dois campos:
+
+- `isSelf: boolean` — `true` apenas na linha do próprio usuário logado. O frontend **deve** esconder o toggle de role nessa linha, já que o backend rejeita auto-edição de role.
+- `canDelete: boolean` — `true` quando o ator pode deletar aquela linha pela matriz acima. O frontend **deve** esconder o botão de deletar quando for `false`.
+
+O mesmo email pode ser re-utilizado em um novo cadastro depois de um soft-delete, porque o índice único em `usuarios.email` é parcial (`WHERE deleted_at IS NULL`). O novo usuário é um id novo — registros antigos não são re-vinculados.
+
+**Importante para contribuidores:** toda nova query que busca usuários por id (login, refresh-token, web-login-ticket, JWT validate, etc.) **deve** filtrar `deleted_at IS NULL`. As checagens atuais vivem em `auth.service.ts` (`login`, `refreshTokens`, `exchangeWebLoginTicket`) e em `auth/strategies/jwt.strategy.ts` — esta última é a que dá revogação imediata: o `JwtStrategy.validate` consulta o banco a cada request autenticado e rejeita com 401 quando o usuário foi soft-deletado, então o access token já emitido deixa de funcionar no request seguinte ao `DELETE /users/:id` (não precisa esperar o `JWT_EXPIRES_IN`).
+
 ## 🚀 Deploy para Produção (EC2)
 
 ### Pré-requisitos no EC2

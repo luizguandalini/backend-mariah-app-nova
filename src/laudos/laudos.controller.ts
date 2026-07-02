@@ -8,15 +8,16 @@ import {
   Patch,
   Delete,
   UseGuards,
+  UseInterceptors,
   HttpCode,
   HttpStatus,
   Query,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
-  ApiBearerAuth,
   ApiParam,
   ApiQuery,
 } from '@nestjs/swagger';
@@ -33,20 +34,20 @@ import { RequestPdfGenerationDto } from './dto/request-pdf-generation.dto';
 import { UpdateFilenameCaptionPreferenceDto } from './dto/update-filename-caption-preference.dto';
 import { LaudoLogoPresignedDto, ConfirmLaudoLogoDto } from './dto/laudo-logo.dto';
 import { Laudo } from './entities/laudo.entity';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
+import { StrictAuth } from '../auth/decorators/strict-auth.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserRole } from '../users/enums/user-role.enum';
+import { DriveReadonlyAuditInterceptor } from '../common/interceptors/drive-readonly-audit.interceptor';
 
 @ApiTags('laudos')
 @Controller('laudos')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@ApiBearerAuth()
 export class LaudosController {
   constructor(private readonly laudosService: LaudosService) {}
 
   @Post()
+  @StrictAuth()
   @ApiOperation({ summary: 'Criar novo laudo' })
   @ApiResponse({ status: 201, description: 'Laudo criado com sucesso' })
   async create(@Body() createLaudoDto: CreateLaudoDto, @CurrentUser() user: any): Promise<Laudo> {
@@ -55,6 +56,7 @@ export class LaudosController {
   }
 
   @Get('dashboard/stats')
+  @StrictAuth()
   @ApiOperation({ summary: 'Obter estatísticas do dashboard do usuário logado' })
   @ApiResponse({
     status: 200,
@@ -66,6 +68,7 @@ export class LaudosController {
   }
 
   @Get('dashboard/recent')
+  @StrictAuth()
   @ApiOperation({ summary: 'Obter laudos recentes do usuário logado' })
   @ApiQuery({ name: 'limit', required: false, description: 'Número máximo de laudos a retornar' })
   @ApiResponse({ status: 200, description: 'Laudos recentes retornados com sucesso' })
@@ -77,6 +80,7 @@ export class LaudosController {
   }
 
   @Get('me')
+  @StrictAuth()
   @ApiOperation({ summary: 'Listar todos os laudos do usuário logado' })
   @ApiQuery({ name: 'page', required: false, description: 'Número da página (padrão: 1)' })
   @ApiQuery({ name: 'limit', required: false, description: 'Quantidade por página (padrão: 10)' })
@@ -100,6 +104,7 @@ export class LaudosController {
   }
 
   @Get()
+  @StrictAuth()
   @Roles(UserRole.DEV, UserRole.ADMIN)
   @ApiOperation({ summary: 'Listar todos os laudos (DEV/ADMIN)' })
   @ApiQuery({ name: 'page', required: false, description: 'Número da página (padrão: 1)' })
@@ -115,6 +120,7 @@ export class LaudosController {
   }
 
   @Get(':id')
+  @StrictAuth()
   @ApiOperation({ summary: 'Buscar laudo por ID' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })
   @ApiResponse({ status: 200, description: 'Laudo encontrado' })
@@ -124,6 +130,7 @@ export class LaudosController {
   }
 
   @Get(':id/detalhes')
+  @StrictAuth()
   @ApiOperation({ summary: 'Buscar apenas os detalhes do laudo por ID' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })
   async getLaudoDetalhes(@Param('id') id: string) {
@@ -131,6 +138,7 @@ export class LaudosController {
   }
 
   @Patch(':id/detalhes')
+  @StrictAuth()
   @ApiOperation({ summary: 'Atualizar apenas os detalhes do questionário do laudo' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })
   @ApiResponse({ status: 200, description: 'Detalhes atualizados com sucesso' })
@@ -145,6 +153,7 @@ export class LaudosController {
   }
 
   @Patch(':id/endereco')
+  @StrictAuth()
   @ApiOperation({ summary: 'Atualizar endereço do laudo' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })
   @ApiResponse({ status: 200, description: 'Endereço atualizado com sucesso' })
@@ -160,6 +169,7 @@ export class LaudosController {
   }
 
   @Put(':id')
+  @StrictAuth()
   @ApiOperation({ summary: 'Atualizar laudo' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })
   @ApiResponse({ status: 200, description: 'Laudo atualizado' })
@@ -168,6 +178,7 @@ export class LaudosController {
   }
 
   @Delete(':id')
+  @StrictAuth()
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Deletar laudo' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })
@@ -178,6 +189,7 @@ export class LaudosController {
   }
 
   @Get(':id/imagens-pdf')
+  @StrictAuth()
   @ApiOperation({ summary: 'Buscar imagens do laudo para PDF com numeração automática' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })
   @ApiQuery({ name: 'page', required: false, description: 'Número da página (padrão: 1)' })
@@ -206,6 +218,7 @@ export class LaudosController {
    * dentro do service (mesmo gate do `getImagensPdfPaginadas`).
    */
   @Get(':id/imagens-avarias')
+  @StrictAuth()
   @ApiOperation({
     summary: 'Buscar imagens de avaria (Registro de Apontamentos) do laudo',
   })
@@ -223,6 +236,7 @@ export class LaudosController {
   }
 
   @Post(':id/pdf-request')
+  @StrictAuth()
   @ApiOperation({ summary: 'Solicitar geração de PDF (Async via RabbitMQ)' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })
   @ApiResponse({ status: 200, description: 'Solicitação enfileirada com sucesso' })
@@ -249,6 +263,7 @@ export class LaudosController {
   }
 
   @Patch(':id/filename-caption-preference')
+  @StrictAuth()
   @ApiOperation({ summary: 'Atualizar preferência de legenda pelo nome do arquivo no laudo' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })
   @ApiResponse({ status: 200, description: 'Preferência atualizada com sucesso' })
@@ -268,6 +283,7 @@ export class LaudosController {
   // ========== LOGO PERSONALIZADA DO LAUDO ==========
 
   @Post(':id/logo/presigned-url')
+  @StrictAuth()
   @ApiOperation({ summary: 'Gera URL pré-assinada para upload da logo personalizada do laudo' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })
   @ApiResponse({ status: 201, description: 'URL gerada com sucesso' })
@@ -287,6 +303,7 @@ export class LaudosController {
   }
 
   @Post(':id/logo/confirm')
+  @StrictAuth()
   @ApiOperation({ summary: 'Confirma o upload da logo personalizada do laudo' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })
   @ApiResponse({ status: 201, description: 'Logo personalizada atualizada' })
@@ -299,6 +316,7 @@ export class LaudosController {
   }
 
   @Delete(':id/logo')
+  @StrictAuth()
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Remove a logo personalizada do laudo' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })
@@ -309,14 +327,42 @@ export class LaudosController {
 
   // ========== AMBIENTES WEB ==========
 
+  /**
+   * Leitura aberta da drive view (liberalizada pela change
+   * `add-drive-readonly-mode-for-non-owners`).
+   *
+   * - Aceita chamadores anônimos OU logados (`OptionalJwtAuthGuard`
+   *   popula `req.user` se houver token válido; se ausente/inválido,
+   *   segue adiante sem erro).
+   * - Aplica rate-limit por IP (`Throttle`) para reduzir scraping.
+   * - `DriveReadonlyAuditInterceptor` registra cada chamada.
+   * - O service calcula o `viewer` (permissões) e decide entre a
+   *   resposta do modo pleno (dono/admin) e a projeção read-only
+   *   (demais).
+   *
+   * Qualquer tentativa de MUTAÇÃO sobre o mesmo `laudoId` continua
+   * exigindo JWT + ownership/admin (server-side).
+   */
   @Get(':id/ambientes-web')
-  @ApiOperation({ summary: 'Listar ambientes web do laudo com contagem de imagens' })
+  @UseGuards(OptionalJwtAuthGuard)
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
+  @UseInterceptors(DriveReadonlyAuditInterceptor)
+  @ApiOperation({ summary: 'Listar ambientes web do laudo com contagem de imagens (leitura aberta da drive view).' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })
-  async getAmbientesWeb(@Param('id') id: string, @CurrentUser() user: any) {
-    return await this.laudosService.getAmbientesWeb(id, user.id, user.role);
+  @ApiResponse({ status: 200, description: 'Lista de ambientes + viewer.' })
+  @ApiResponse({ status: 404, description: 'Laudo não encontrado' })
+  async getAmbientesWeb(
+    @Param('id') id: string,
+    @CurrentUser() user?: any,
+  ) {
+    return await this.laudosService.getAmbientesWeb(
+      id,
+      user ? { id: user.id, role: user.role } : undefined,
+    );
   }
 
   @Post(':id/ambientes-web')
+  @StrictAuth()
   @ApiOperation({ summary: 'Adicionar ambiente web ao laudo' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })
   async addAmbienteWeb(
@@ -336,6 +382,7 @@ export class LaudosController {
   }
 
   @Patch(':id/ambientes-web/reordenar')
+  @StrictAuth()
   @ApiOperation({ summary: 'Reordenar ambientes web do laudo por arrastar e soltar' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })
   async reordenarAmbientesWeb(
@@ -352,6 +399,7 @@ export class LaudosController {
   }
 
   @Patch(':id/ambientes-web/renomear')
+  @StrictAuth()
   @ApiOperation({ summary: 'Renomear ambiente web do laudo' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })
   async renomearAmbienteWeb(
@@ -369,6 +417,7 @@ export class LaudosController {
   }
 
   @Delete(':id/ambientes-web/:nomeAmbiente')
+  @StrictAuth()
   @ApiOperation({ summary: 'Remover ambiente web do laudo' })
   @ApiParam({ name: 'id', description: 'ID do laudo' })
   @ApiParam({ name: 'nomeAmbiente', description: 'Nome do ambiente a remover' })

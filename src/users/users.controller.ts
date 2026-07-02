@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Body,
   Param,
   Delete,
@@ -14,6 +15,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
+import { ChangeRoleDto } from './dto/change-role.dto';
 import { UpdateConfiguracoesPdfDto } from './dto/update-configuracoes-pdf.dto';
 import { UpdatePushTokenDto } from './dto/update-push-token.dto';
 import { FotoPerfilPresignedDto, ConfirmFotoPerfilDto } from './dto/foto-perfil-presigned.dto';
@@ -36,7 +38,7 @@ export class UsersController {
   @ApiOperation({ summary: 'Obter dados do usuário logado' })
   @ApiResponse({ status: 200, description: 'Dados retornados com sucesso' })
   async getMe(@CurrentUser() user: any): Promise<Usuario> {
-    return await this.usersService.getMe(user.id);
+    return await this.usersService.getMe(user.id, user);
   }
 
   @Post('me/foto-perfil/presigned-url')
@@ -78,14 +80,15 @@ export class UsersController {
   @ApiResponse({ status: 200, description: 'Lista retornada com sucesso' })
   @ApiResponse({ status: 403, description: 'Sem permissão' })
   async findAll(
+    @CurrentUser() user: any,
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 10,
     @Query('search') search?: string,
     @Query('role') role?: UserRole,
     @Query('ativo') ativo?: string,
-  ): Promise<{ data: Usuario[]; total: number; page: number; totalPages: number }> {
+  ): Promise<{ data: Array<Usuario & { isSelf: boolean; canDelete: boolean }>; total: number; page: number; totalPages: number }> {
     const ativoBoolean = ativo === undefined ? undefined : ativo === 'true';
-    return await this.usersService.findAll(+page, +limit, search, role, ativoBoolean);
+    return await this.usersService.findAll(user, +page, +limit, search, role, ativoBoolean);
   }
 
   @Get(':id')
@@ -94,8 +97,11 @@ export class UsersController {
   @ApiParam({ name: 'id', description: 'ID do usuário' })
   @ApiResponse({ status: 200, description: 'Usuário encontrado' })
   @ApiResponse({ status: 404, description: 'Usuário não encontrado' })
-  async findOne(@Param('id') id: string): Promise<Usuario> {
-    return await this.usersService.findOne(id);
+  async findOne(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ): Promise<Usuario & { isSelf: boolean; canDelete: boolean }> {
+    return await this.usersService.findOne(id, user);
   }
 
   @Put(':id')
@@ -142,14 +148,49 @@ export class UsersController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.DEV)
+  @Roles(UserRole.DEV, UserRole.ADMIN)
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Deletar usuário (APENAS DEV)' })
+  @ApiOperation({
+    summary: 'Deletar (soft delete) um usuário (ADMIN/DEV)',
+    description:
+      'Soft-deleta o usuário alvo: a linha permanece no banco com ' +
+      '`deletedAt` setado e `ativo = false`. Laudos, imagens e outras ' +
+      'referências ao usuário NÃO são apagadas — o usuário pode ser ' +
+      'recriado depois como um novo id, sem herdar registros antigos. ' +
+      'Não é permitido deletar usuários DEV nem o próprio usuário logado.',
+  })
   @ApiParam({ name: 'id', description: 'ID do usuário' })
-  @ApiResponse({ status: 204, description: 'Usuário deletado' })
+  @ApiResponse({ status: 204, description: 'Usuário soft-deletado' })
+  @ApiResponse({ status: 400, description: 'Auto-deleção não permitida' })
+  @ApiResponse({ status: 403, description: 'Sem permissão (DEV é protegido ou actor não é ADMIN/DEV)' })
+  @ApiResponse({ status: 404, description: 'Usuário não encontrado' })
+  async remove(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ): Promise<void> {
+    return await this.usersService.softDelete(id, user);
+  }
+
+  @Patch(':id/role')
+  @Roles(UserRole.DEV, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Alterar o role (nível de acesso) de um usuário (DEV/ADMIN)',
+    description:
+      'Permite promover USUARIO -> ADMIN e reverter ADMIN -> USUARIO. ' +
+      'O contador quantidadeImagens é preservado intacto em qualquer transição. ' +
+      'Não permite tocar em usuários DEV nem promover ninguém a DEV.',
+  })
+  @ApiParam({ name: 'id', description: 'ID do usuário alvo' })
+  @ApiResponse({ status: 200, description: 'Role alterado com sucesso' })
+  @ApiResponse({ status: 400, description: 'Transição inválida ou no-op' })
   @ApiResponse({ status: 403, description: 'Sem permissão' })
-  async remove(@Param('id') id: string): Promise<void> {
-    return await this.usersService.remove(id);
+  @ApiResponse({ status: 404, description: 'Usuário não encontrado' })
+  async changeRole(
+    @Param('id') id: string,
+    @Body() dto: ChangeRoleDto,
+    @CurrentUser() user: any,
+  ): Promise<Usuario> {
+    return await this.usersService.changeRole(id, dto, user);
   }
 
   @Get('configuracoes-pdf')

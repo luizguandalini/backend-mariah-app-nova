@@ -432,6 +432,10 @@ export class ContestacaoService {
       return null;
     }
     const limpa = legenda
+            // caracteres de controle ASCII (NUL, BEL, ESC, etc.) e DEL.
+      // Intencional: legendas com \x1B (ESC) podem quebrar a
+      // renderização do PDF e poluir logs de terminal.
+            // eslint-disable-next-line no-control-regex
       .replace(/[\x00-\x1F\x7F]/g, '')
       .replace(/\s+/g, ' ')
       .trim();

@@ -2,6 +2,7 @@ import { join } from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PlanosModule } from './planos/planos.module';
@@ -91,6 +92,27 @@ import { DriveModule } from './drive/drive.module';
       inject: [ConfigService],
     }),
     TypeOrmModule.forFeature([Usuario]),
+    // Rate-limit aplicado seletivamente nas rotas liberadas da drive view
+    // (ver @Throttle(...) em LaudosController e UploadsController).
+    // Default: 60 req/min/IP — configurável por env
+    // (`DRIVE_READONLY_RATE_LIMIT`, `DRIVE_READONLY_RATE_TTL_MS`).
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        throttlers: [
+          {
+            ttl: parseInt(
+              configService.get('DRIVE_READONLY_RATE_TTL_MS') || '60000',
+              10,
+            ),
+            limit: parseInt(
+              configService.get('DRIVE_READONLY_RATE_LIMIT') || '60',
+              10,
+            ),
+          },
+        ],
+      }),
+    }),
     PlanosModule,
     AuthModule,
     UsersModule,
