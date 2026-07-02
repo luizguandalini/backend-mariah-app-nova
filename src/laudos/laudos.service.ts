@@ -23,6 +23,12 @@ import { ImagemLaudo } from '../uploads/entities/imagem-laudo.entity';
 import { ImagensPdfResponseDto, ImagemPdfDto } from './dto/imagens-pdf-response.dto';
 import { EstrategiaConflitoAmbienteWeb } from './dto/add-ambiente-web.dto';
 
+import {
+  ReadOnlyAmbienteWebItemDto,
+  ReadOnlyAmbientesWebResponseDto,
+} from './dto/drive-readonly-projection.dto';
+
+import { buildDriveViewer, DriveViewerSubject } from '../common/viewer/build-drive-viewer';
 import { UploadsService } from '../uploads/uploads.service';
 import { RabbitMQService } from '../queue/rabbitmq.service';
 import { ContestacaoService } from '../contestacao/contestacao.service';
@@ -501,30 +507,39 @@ export class LaudosService {
   }
 
   /**
-   * Lista ambientes web do laudo (do JSON + merge com imagens existentes)
+   * Lista ambientes web do laudo (do JSON + merge com imagens existentes).
+   *
+   * Aberta para chamadores anônimos OU logados — liberalizada pela
+   * change `add-drive-readonly-mode-for-non-owners`. Quando o chamador
+   * não é dono nem `DEV`/`ADMIN`, devolve uma projeção read-only
+   * (`ReadOnlyAmbientesWebResponseDto`) com whitelist de campos e o
+   * campo `viewer` com todos os `can*` como `false`. Quando o
+   * chamador é dono/admin, devolve a forma plena + `viewer` com
+   * `can*` como `true`.
+   *
+   * Qualquer laudo existente é visualizável; laudo inexistente → 404.
    */
   async getAmbientesWeb(
     laudoId: string,
-    userId: string,
-    userRole: UserRole,
-  ): Promise<{
-    ambientes: {
-      nomeAmbiente: string;
-      tipoAmbiente: string;
-      ordem: number;
-      totalImagens: number;
-    }[];
-    tipoUso?: string;
-    tipoImovel?: string;
-    usarNomeArquivoComoLegenda: boolean;
-  }> {
+    currentUser?: DriveViewerSubject,
+  ): Promise<
+    | (ReadOnlyAmbientesWebResponseDto)
+    | {
+        ambientes: {
+          nomeAmbiente: string;
+          tipoAmbiente: string;
+          ordem: number;
+          totalImagens: number;
+        }[];
+        tipoUso?: string;
+        tipoImovel?: string;
+        usarNomeArquivoComoLegenda: boolean;
+        viewer: import('../laudos/dto/drive-viewer.dto').DriveViewerDto;
+      }
+  > {
     const laudo = await this.findOne(laudoId);
 
-    const isOwner = laudo.usuarioId === userId;
-    const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
-    if (!isOwner && !isAdminOrDev) {
-      throw new ForbiddenException('Você não tem permissão para ver este laudo');
-    }
+    const viewer = buildDriveViewer(currentUser, laudo);
 
     const ambientesWeb = this.normalizarOrdensAmbientes(laudo.ambientesWeb || []);
     const imagens = await this.imagemRepository.find({
@@ -617,11 +632,25 @@ export class LaudosService {
         }));
     }
 
+    // Modo visualização (não-dono nem admin/dev): whitelist estrita,
+    // sem campos administrativos do laudo.
+    if (!viewer.canWrite) {
+      const readonlyAmbientes: ReadOnlyAmbienteWebItemDto[] = resultado.map((amb) => ({
+        nomeAmbiente: amb.nomeAmbiente,
+        tipoAmbiente: amb.tipoAmbiente,
+        ordem: amb.ordem,
+        totalImagens: amb.totalImagens,
+      }));
+      return { ambientes: readonlyAmbientes, viewer };
+    }
+
+    // Modo pleno (dono OU admin/dev): dados completos + `viewer` afixado.
     return {
       ambientes: resultado,
       tipoUso: laudo.tipoUso,
       tipoImovel: laudo.tipoImovel,
       usarNomeArquivoComoLegenda: !!laudo.usarNomeArquivoComoLegenda,
+      viewer,
     };
   }
 

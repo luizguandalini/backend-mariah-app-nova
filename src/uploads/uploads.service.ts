@@ -21,6 +21,11 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Readable } from 'stream';
 import sharp from 'sharp';
 import { buildS3ClientConfig } from '../common/utils/s3-client.util';
+import { buildDriveViewer, DriveViewerSubject } from '../common/viewer/build-drive-viewer';
+import {
+  ReadOnlyImagemByAmbienteItemDto,
+  ReadOnlyImagensByAmbienteResponseDto,
+} from './dto/drive-readonly-imagens-by-ambiente.dto';
 import { ImagemLaudo } from './entities/imagem-laudo.entity';
 import { Usuario } from '../users/entities/usuario.entity';
 import { Laudo } from '../laudos/entities/laudo.entity';
@@ -676,18 +681,26 @@ export class UploadsService {
   }
 
   /**
-   * Retorna imagens de um ambiente específico de forma paginada
+   * Retorna imagens de um ambiente específico de forma paginada.
+   *
+   * Liberalizada pela change `add-drive-readonly-mode-for-non-owners`
+   * para aceitar chamadores anônimos OU logados. Quando o chamador não
+   * é dono nem `DEV`/`ADMIN`, devolve uma projeção read-only
+   * (`ReadOnlyImagensByAmbienteResponseDto`) com whitelist estrita
+   * de campos e URLs presigned **de leitura**. Quando o chamador é
+   * dono/admin, devolve a forma plena + `viewer` com `can*` = `true`.
+   *
+   * Laudo inexistente → 404 indistinguível.
    */
   async getImagensByAmbiente(
-    userId: string,
     laudoId: string,
     ambiente: string,
+    currentUser?: DriveViewerSubject,
     page: number = 1,
     limit: number = 20,
-    userRole: UserRole,
-  ): Promise<{ data: any[]; total: number; page: number; lastPage: number }> {
+  ): Promise<{ data: any[]; total: number; page: number; lastPage: number; viewer: import('../laudos/dto/drive-viewer.dto').DriveViewerDto } | ReadOnlyImagensByAmbienteResponseDto> {
     this.logger.log(
-      `[GET_AMBIENTE][START] userId=${userId} laudoId=${laudoId} ambiente="${ambiente}" page=${page} limit=${limit}`,
+      `[GET_AMBIENTE][START] userId=${currentUser?.id ?? 'anon'} laudoId=${laudoId} ambiente="${ambiente}" page=${page} limit=${limit}`,
     );
     const laudo = await this.laudoRepository.findOne({
       where: { id: laudoId },
@@ -697,13 +710,7 @@ export class UploadsService {
       throw new NotFoundException('Laudo não encontrado');
     }
 
-    // Verificar permissão
-    const isOwner = laudo.usuarioId === userId;
-    const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
-
-    if (!isOwner && !isAdminOrDev) {
-      throw new ForbiddenException('Você não tem permissão para ver as imagens deste laudo');
-    }
+    const viewer = buildDriveViewer(currentUser, laudo);
 
     const [imagens, total] = await this.imagemLaudoRepository.findAndCount({
       where: { laudoId, ambiente },
@@ -714,18 +721,39 @@ export class UploadsService {
     this.logger.log(
       `[GET_AMBIENTE][DB_RESULT] laudoId=${laudoId} ambiente="${ambiente}" total=${total} pageItems=${imagens.length} page=${page} limit=${limit}`,
     );
-    this.logger.log(
-      `[GET_AMBIENTE][DB_KEYS] ${JSON.stringify(
-        imagens.map((img) => ({
-          id: img.id,
-          s3Key: img.s3Key,
-          ordem: img.ordem,
-          ambiente: img.ambiente,
-        })),
-      )}`,
-    );
 
-    // Gerar URLs pré-assinadas para visualização
+    // Modo visualização (não-dono nem admin/dev): whitelist estrita,
+    // sem `s3Key`, `damageMarker`, etc.
+    if (!viewer.canWrite) {
+      const data: ReadOnlyImagemByAmbienteItemDto[] = await Promise.all(
+        imagens.map(async (img) => {
+          const command = new GetObjectCommand({
+            Bucket: this.bucketName,
+            Key: img.s3Key,
+          });
+          const url = await getSignedUrl(this.s3Client, command, {
+            expiresIn: 3600,
+          });
+          return {
+            id: img.id,
+            url,
+            ambiente: img.ambiente,
+            legenda: img.legenda,
+            categoria: img.categoria,
+            ordem: img.ordem,
+          };
+        }),
+      );
+      return {
+        data,
+        total,
+        page,
+        lastPage: Math.ceil(total / limit) || 1,
+        viewer,
+      };
+    }
+
+    // Modo pleno: comportamento original.
     const data = await Promise.all(imagens.map((img) => this.buildImagemResponse(img)));
     this.logger.log(
       `[GET_AMBIENTE][RESPONSE_ITEMS] ${JSON.stringify(
@@ -745,6 +773,7 @@ export class UploadsService {
       total,
       page,
       lastPage: Math.ceil(total / limit) || 1,
+      viewer,
     };
   }
 
@@ -1455,7 +1484,12 @@ ${itemsListString}`;
     const filename = dto.originalFilename
       .split(/[\\/]/)
       .pop()
-      ?.replace(/[\u0000-\u001F\u007F]/g, '')
+            // caracteres de controle ASCII (NUL, BEL, ESC, etc.) e DEL.
+      // Intencional: nomes com \x00 podem virar NTFS-null-byte-trick
+      // (foo vs foo\x00.txt serem tratados como iguais em alguns
+      // sistemas de arquivo / ETags) — bloqueia antes de chegar no S3.
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u001F\u007F]/g, '')
       .trim();
 
     if (!filename) {
@@ -1648,7 +1682,14 @@ ${itemsListString}`;
    */
   static sanitizeFilenamePart(value: string): string {
     const limpo = (value || '')
-      .replace(/[\u0000-\u001F\u007F]/g, '') // remove caracteres de controle
+            // caracteres de controle ASCII (NUL, BEL, ESC, etc.) e DEL.
+      // Intencional: ZIPs gerados pelo backend usam esses nomes
+      // tanto na entry do archive quanto no Content-Disposition
+      // do download HTTP. Caracteres de controle podem
+      // corromper o ZIP e fazer CDNs (CloudFront, Cloudflare)
+      // rejeitarem a resposta.
+                  // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u001F\u007F]/g, '')
       .replace(/[\\/:*?"<>|]/g, '_') // remove caracteres ilegais em path/filename
       .replace(/\s+/g, ' ')
       .trim()
