@@ -34,7 +34,7 @@ export class AuthService {
   async login(loginDto: LoginDto) {
     const usuario = await this.usuarioRepository.findOne({
       where: { email: loginDto.email },
-      select: ['id', 'email', 'nome', 'senha', 'role', 'quantidadeImagens', 'ativo'],
+      select: ['id', 'email', 'nome', 'senha', 'role', 'quantidadeImagens', 'ativo', 'deletedAt'],
     });
 
     if (!usuario) {
@@ -43,6 +43,16 @@ export class AuthService {
 
     if (!usuario.ativo) {
       throw new UnauthorizedException('Usuário inativo');
+    }
+
+    // Defesa em profundidade: o soft-delete já seta ativo = false, mas
+    // checar `deletedAt IS NULL` torna a regra explícita e protege
+    // contra futuras refatorações que mexam em `ativo` sem tocar o
+    // soft-delete. Usuários recriados depois têm id novo, então não
+    // há risco de colisão via email: o índice parcial garante que
+    // apenas um usuário ativo por email existe.
+    if (usuario.deletedAt !== null) {
+      throw new UnauthorizedException('Credenciais inválidas');
     }
 
     const senhaValida = await bcrypt.compare(loginDto.senha, usuario.senha);
@@ -115,10 +125,10 @@ export class AuthService {
     // Verifica se o usuário ainda está ativo
     const usuario = await this.usuarioRepository.findOne({
       where: { id: refreshToken.usuarioId },
-      select: ['id', 'email', 'nome', 'role', 'quantidadeImagens', 'ativo'],
+      select: ['id', 'email', 'nome', 'role', 'quantidadeImagens', 'ativo', 'deletedAt'],
     });
 
-    if (!usuario || !usuario.ativo) {
+    if (!usuario || !usuario.ativo || usuario.deletedAt !== null) {
       throw new UnauthorizedException('Usuário inativo ou não encontrado');
     }
 
@@ -183,10 +193,10 @@ export class AuthService {
 
     const usuario = await this.usuarioRepository.findOne({
       where: { id: ticket.usuarioId },
-      select: ['id', 'email', 'nome', 'role', 'quantidadeImagens', 'ativo'],
+      select: ['id', 'email', 'nome', 'role', 'quantidadeImagens', 'ativo', 'deletedAt'],
     });
 
-    if (!usuario || !usuario.ativo) {
+    if (!usuario || !usuario.ativo || usuario.deletedAt !== null) {
       throw new UnauthorizedException('Usuário inativo ou não encontrado');
     }
 

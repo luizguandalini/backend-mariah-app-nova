@@ -1,22 +1,21 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { Usuario } from './entities/usuario.entity';
 import { ConfiguracaoPdfUsuario } from './entities/configuracao-pdf-usuario.entity';
-import { Laudo } from '../laudos/entities/laudo.entity';
-import { ImagemLaudo } from '../uploads/entities/imagem-laudo.entity';
-import { AnalysisQueue } from '../queue/entities/analysis-queue.entity';
 import { RefreshToken } from '../auth/entities/refresh-token.entity';
-import { WebLoginTicket } from '../auth/entities/web-login-ticket.entity';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { ChangeRoleDto } from './dto/change-role.dto';
 import { UpdateConfiguracoesPdfDto } from './dto/update-configuracoes-pdf.dto';
 import { UserRole } from './enums/user-role.enum';
 import { UploadsService } from '../uploads/uploads.service';
-import { ContestacaoService } from '../contestacao/contestacao.service';
 import { canChangeRole } from './role-policy';
+import { AccessFlags, DeleteActorShape, canDeleteUser, computeAccessFlags } from './user-access-policy';
+
+/** User row augmented with the per-row flags exposed to the admin view. */
+export type UsuarioComFlags = Usuario & AccessFlags;
 
 @Injectable()
 export class UsersService {
@@ -27,28 +26,25 @@ export class UsersService {
     private readonly usuarioRepository: Repository<Usuario>,
     @InjectRepository(ConfiguracaoPdfUsuario)
     private readonly configuracaoPdfRepository: Repository<ConfiguracaoPdfUsuario>,
-    @InjectRepository(Laudo)
-    private readonly laudoRepository: Repository<Laudo>,
-    @InjectRepository(ImagemLaudo)
-    private readonly imagemLaudoRepository: Repository<ImagemLaudo>,
-    @InjectRepository(AnalysisQueue)
-    private readonly analysisQueueRepository: Repository<AnalysisQueue>,
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepository: Repository<RefreshToken>,
-    @InjectRepository(WebLoginTicket)
-    private readonly webLoginTicketRepository: Repository<WebLoginTicket>,
     private readonly uploadsService: UploadsService,
-    private readonly contestacaoService: ContestacaoService,
   ) {}
 
   async findAll(
+    actor: DeleteActorShape,
     page: number = 1,
     limit: number = 10,
     search?: string,
     role?: UserRole,
     ativo?: boolean,
-  ): Promise<{ data: Usuario[]; total: number; page: number; totalPages: number }> {
+  ): Promise<{ data: UsuarioComFlags[]; total: number; page: number; totalPages: number }> {
     const queryBuilder = this.usuarioRepository.createQueryBuilder('usuario');
+
+    // Soft-deleted users are hidden from the admin view by spec. The
+    // partial unique email index already lets a deleted user's email be
+    // re-used, but the deleted row itself is no longer queryable here.
+    queryBuilder.andWhere('usuario.deletedAt IS NULL');
 
     // Filtro de busca por nome ou email
     if (search) {
@@ -76,7 +72,15 @@ export class UsersService {
     queryBuilder.orderBy('usuario.nome', 'ASC');
 
     // Executar query
-    const [data, total] = await queryBuilder.getManyAndCount();
+    const [rows, total] = await queryBuilder.getManyAndCount();
+
+    // Decora cada linha com isSelf / canDelete, computados pelo helper
+    // puro. Mantém a regra no servidor e dá ao frontend um sinal
+    // determinístico para esconder o toggle de role e o botão de deletar.
+    const data: UsuarioComFlags[] = rows.map((row) => ({
+      ...row,
+      ...computeAccessFlags(row, actor),
+    }));
 
     return {
       data,
@@ -86,18 +90,20 @@ export class UsersService {
     };
   }
 
-  async findOne(id: string): Promise<Usuario> {
-    const usuario = await this.usuarioRepository.findOne({ where: { id } });
+  async findOne(id: string, actor: DeleteActorShape): Promise<UsuarioComFlags> {
+    const usuario = await this.usuarioRepository.findOne({
+      where: { id, deletedAt: IsNull() },
+    });
 
     if (!usuario) {
       throw new NotFoundException('Usuário não encontrado');
     }
 
-    return usuario;
+    return { ...usuario, ...computeAccessFlags(usuario, actor) };
   }
 
   async update(id: string, updateUsuarioDto: UpdateUsuarioDto, currentUser: any): Promise<Usuario> {
-    const usuario = await this.findOne(id);
+    const usuario = await this.findOne(id, currentUser);
 
     // Permissões:
     // 1. Usuário pode editar a si mesmo (mas com restrições de campos)
@@ -166,7 +172,7 @@ export class UsersService {
       );
     }
 
-    const usuario = await this.findOne(id);
+    const usuario = await this.findOne(id, currentUser);
 
     // DEV e ADMIN não podem ter seus créditos alterados (acesso ilimitado)
     if ([UserRole.DEV, UserRole.ADMIN].includes(usuario.role)) {
@@ -182,7 +188,7 @@ export class UsersService {
       throw new ForbiddenException('Apenas DEV e ADMIN podem adicionar imagens disponíveis');
     }
 
-    const usuario = await this.findOne(id);
+    const usuario = await this.findOne(id, currentUser);
 
     if ([UserRole.DEV, UserRole.ADMIN].includes(usuario.role)) {
       throw new ForbiddenException('DEV e ADMIN têm acesso ilimitado');
@@ -210,7 +216,7 @@ export class UsersService {
       throw new BadRequestException('Não é permitido alterar o próprio role');
     }
 
-    const target = await this.findOne(id);
+    const target = await this.findOne(id, currentUser);
 
     if (target.role === dto.role) {
       throw new BadRequestException(
@@ -245,115 +251,81 @@ export class UsersService {
     return target;
   }
 
-  async remove(id: string): Promise<void> {
-    const usuario = await this.findOne(id);
-
-    // Não permite deletar usuário DEV
-    if (usuario.role === UserRole.DEV) {
-      throw new ForbiddenException('Não é permitido deletar usuário DEV');
+  /**
+   * Soft-delete a target user. The user row is kept (with `deletedAt`
+   * set); all related domain records (laudos, images, configuracao_pdf,
+   * etc.) are intentionally NOT touched and remain FK'd to this row.
+   * The same identity can later be re-created as a brand-new user with
+   * a new id; old records will not be re-attached to the new user.
+   *
+   * Side-effects (session state only, NOT domain data):
+   *   - sets `ativo = false` so the existing login guard kicks in
+   *     everywhere
+   *   - revokes all non-revoked refresh tokens so the deleted user
+   *     cannot continue to authenticate
+   *   - writes an audit line with actor/target/role/timestamp
+   *
+   * Authorization (encoded in `canDeleteUser` + checked here too):
+   *   - 400 if the target is the actor (self-delete forbidden)
+   *   - 403 if the target has role DEV (DEV users are protected)
+   *   - 403 if the actor is not ADMIN or DEV
+   *   - 404 if the target does not exist OR is already soft-deleted
+   *     (a re-created user is a brand-new id, not a resurrection)
+   */
+  async softDelete(id: string, currentUser: any): Promise<void> {
+    if (currentUser.id === id) {
+      throw new BadRequestException('Não é permitido deletar o próprio usuário');
     }
 
-    this.logger.warn(`🗑️ Iniciando deleção completa do usuário: ${usuario.nome} (${usuario.email}) - ID: ${id}`);
-
-    // 1. Buscar todos os laudos do usuário para deletar imagens do S3
-    const laudos = await this.laudoRepository.find({ where: { usuarioId: id } });
-    const laudoIds = laudos.map(l => l.id);
-
-    // 2. Deletar imagens do S3 (fora da transação do banco)
-    for (const laudoId of laudoIds) {
-      try {
-        await this.uploadsService.deleteImagensByLaudo(laudoId);
-        this.logger.log(`  ✅ Imagens S3 do laudo ${laudoId} deletadas`);
-      } catch (error) {
-        this.logger.error(`  ⚠️ Erro ao deletar imagens S3 do laudo ${laudoId}:`, error);
-        // Continua mesmo com erro no S3
-      }
-
-      // 2b. Deletar imagens de contestação do S3 (Registros Complementares)
-      try {
-        await this.contestacaoService.deleteContestacaoImagensByLaudo(laudoId);
-        this.logger.log(`  ✅ Imagens de contestação S3 do laudo ${laudoId} deletadas`);
-      } catch (error) {
-        this.logger.error(
-          `  ⚠️ Erro ao deletar imagens de contestação S3 do laudo ${laudoId}:`,
-          error,
-        );
-      }
-    }
-
-    // 3. Deletar PDFs do S3 (se existirem)
-    for (const laudo of laudos) {
-      if (laudo.pdfUrl) {
-        try {
-          const s3Key = `users/${id}/laudos/${laudo.id}/relatorio.pdf`;
-          await this.uploadsService.deleteFile(s3Key);
-        } catch (error) {
-          this.logger.error(`  ⚠️ Erro ao deletar PDF do laudo ${laudo.id}:`, error);
-        }
-      }
-    }
-
-    // 3b. Deletar foto de perfil / logo do S3 (se existir)
-    if (usuario.fotoPerfilS3Key) {
-      try {
-        await this.uploadsService.deleteFile(usuario.fotoPerfilS3Key);
-        this.logger.log(`  ✅ Foto de perfil do S3 deletada`);
-      } catch (error) {
-        this.logger.error(`  ⚠️ Erro ao deletar foto de perfil do S3:`, error);
-      }
-    }
-
-    // 3c. Deletar logos personalizadas dos laudos do S3 (se existirem)
-    const logosPersonalizadas = laudos
-      .map((laudo) => laudo.logoPersonalizadaS3Key)
-      .filter((key): key is string => Boolean(key));
-    if (logosPersonalizadas.length > 0) {
-      try {
-        await this.uploadsService.deleteS3ObjectsBatch(logosPersonalizadas);
-        this.logger.log(`  ✅ ${logosPersonalizadas.length} logo(s) personalizada(s) do S3 deletada(s)`);
-      } catch (error) {
-        this.logger.error(`  ⚠️ Erro ao deletar logos personalizadas do S3:`, error);
-      }
-    }
-
-    // 4. Deletar registros do banco em transação
-    await this.usuarioRepository.manager.transaction(async (manager) => {
-      // 4a. Deletar registros da fila de análise
-      await manager.delete(AnalysisQueue, { usuarioId: id });
-      this.logger.log(`  ✅ Registros da fila de análise deletados`);
-
-      // 4b. Deletar imagens do banco (vinculadas ao usuário)
-      await manager.delete(ImagemLaudo, { usuarioId: id });
-      this.logger.log(`  ✅ Registros de imagens deletados do banco`);
-
-      // 4c. Deletar web login tickets
-      await manager.delete(WebLoginTicket, { usuarioId: id });
-      this.logger.log(`  ✅ Web login tickets deletados`);
-
-      // 4d. Deletar refresh tokens
-      await manager.delete(RefreshToken, { usuarioId: id });
-      this.logger.log(`  ✅ Refresh tokens deletados`);
-
-      // 4e. Deletar laudos
-      if (laudoIds.length > 0) {
-        await manager.delete(Laudo, { usuarioId: id });
-        this.logger.log(`  ✅ ${laudoIds.length} laudos deletados`);
-      }
-
-      // 4f. Deletar configurações de PDF
-      await manager.delete(ConfiguracaoPdfUsuario, { usuarioId: id });
-      this.logger.log(`  ✅ Configurações de PDF deletadas`);
-
-      // 4g. Deletar o próprio usuário
-      await manager.remove(usuario);
-      this.logger.log(`  ✅ Usuário removido do banco`);
+    const target = await this.usuarioRepository.findOne({
+      where: { id, deletedAt: IsNull() },
     });
 
-    this.logger.warn(`🗑️ Deleção completa do usuário ${usuario.nome} (${usuario.email}) finalizada com sucesso`);
+    if (!target) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    if (!canDeleteUser(currentUser, target)) {
+      // canDeleteUser é false em dois casos: target é DEV, ou actor é
+      // comum. A mensagem de erro escolhe o motivo mais provável.
+      if (target.role === UserRole.DEV) {
+        throw new ForbiddenException('Não é permitido deletar usuário DEV');
+      }
+      throw new ForbiddenException(
+        'Você não tem permissão para deletar usuários',
+      );
+    }
+
+    const now = new Date();
+    target.deletedAt = now;
+    target.ativo = false;
+    await this.usuarioRepository.save(target);
+
+    // Estado de sessão: revoga refresh tokens para que o usuário
+    // deletado não consiga trocar um refresh válido por um novo access
+    // token. Web login tickets não precisam ser tocados: o exchange já
+    // verifica `!usuario.ativo` (que acabamos de setar como false) e
+    // marca o ticket como usado.
+    await this.refreshTokenRepository.update(
+      { usuarioId: id, revoked: false },
+      { revoked: true },
+    );
+
+    this.logger.warn(
+      JSON.stringify({
+        event: 'userSoftDelete',
+        actorId: currentUser.id,
+        actorEmail: currentUser.email,
+        targetId: target.id,
+        targetEmail: target.email,
+        targetRole: target.role,
+        timestamp: now.toISOString(),
+      }),
+    );
   }
 
-  async getMe(userId: string): Promise<Usuario & { fotoPerfilUrl: string | null }> {
-    const usuario = await this.findOne(userId);
+  async getMe(userId: string, currentUser: any): Promise<Usuario & { fotoPerfilUrl: string | null }> {
+    const usuario = await this.findOne(userId, currentUser);
     const fotoPerfilUrl = await this.uploadsService.getProfilePhotoUrl(usuario.fotoPerfilS3Key);
     return Object.assign(usuario, { fotoPerfilUrl });
   }
@@ -430,7 +402,12 @@ export class UsersService {
   }
 
   async updatePushToken(usuarioId: string, expoPushToken?: string): Promise<Usuario> {
-    const usuario = await this.findOne(usuarioId);
+    const usuario = await this.usuarioRepository.findOne({
+      where: { id: usuarioId, deletedAt: IsNull() },
+    });
+    if (!usuario) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
     usuario.expoPushToken = expoPushToken || null;
     return await this.usuarioRepository.save(usuario);
   }
