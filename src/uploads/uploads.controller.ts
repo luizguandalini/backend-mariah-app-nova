@@ -23,6 +23,7 @@ import { UpdateLegendaDto } from './dto/update-legenda.dto';
 import { SignedUrlsBatchDto } from './dto/signed-urls-batch.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { DriveReadonlyAuditInterceptor } from '../common/interceptors/drive-readonly-audit.interceptor';
+import { DriveDownloadAuditInterceptor } from '../common/interceptors/drive-download-audit.interceptor';
 
 @Controller('uploads')
 export class UploadsController {
@@ -134,24 +135,35 @@ export class UploadsController {
    * de download. Mantém o original intacto no S3.
    * GET /uploads/image/:id/download
    *
-   * Permanece **estrito** (JWT + ownership/admin) — a UI desabilita/hide
-   * o botão quando `viewer.canDownloadFoto === false` no payload da
-   * rota liberalizada `GET /laudos/:id/ambientes-web`. Defesa em
-   * profundidade: o byte da imagem é o mesmo da URL presigned em
-   * `img.url`, mas este endpoint exige token server-side.
+   * **Liberalizado** pela change `enable-download-in-visualization`:
+   * - `OptionalJwtAuthGuard`: aceita anônimo OU logado. Anônimo passa
+   *   direto; logado passa pela checagem de ownership no service
+   *   (defesa em profundidade — ver Decisão #2 do design.md).
+   * - `Throttle`: rate-limit por IP.
+   * - `DriveDownloadAuditInterceptor`: registra cada chamada
+   *   (`event: 'download_image'`).
    */
   @Get('image/:id/download')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(OptionalJwtAuthGuard)
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
+  @UseInterceptors(DriveDownloadAuditInterceptor)
+  @ApiOperation({ summary: 'Baixar imagem otimizada do laudo (modo visualização aceita anônimo).' })
+  @ApiResponse({ status: 200, description: 'Buffer da imagem + Content-Disposition: attachment.' })
+  @ApiResponse({ status: 403, description: 'Imagem existe, mas o chamador autenticado não é dono nem admin/dev.' })
+  @ApiResponse({ status: 404, description: 'Imagem não encontrada' })
   async downloadImagem(
-    @Request() req,
     @Param('id') imagemId: string,
     @Res() reply: FastifyReply,
+    @CurrentUser() user?: any,
   ) {
-    const { buffer, filename, contentType } = await this.uploadsService.downloadImagem(
-      req.user.id,
+    const { buffer, filename, contentType, laudoId } = await this.uploadsService.downloadImagem(
       imagemId,
-      req.user.role,
+      user ? { id: user.id, role: user.role } : undefined,
     );
+    // laudoId + size vão no request para o interceptor de auditoria ler.
+    (reply.request as any).laudoIdFromHandler = laudoId;
+    (reply.request as any).sizeFromHandler = buffer.length;
+    (reply.request as any).imagemIdFromHandler = imagemId;
     reply.header('Content-Disposition', `attachment; filename="${filename}"`);
     reply.header('Content-Length', buffer.length);
     reply.type(contentType);

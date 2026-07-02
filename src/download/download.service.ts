@@ -2,7 +2,6 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  ForbiddenException,
   BadRequestException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -13,9 +12,7 @@ import {
   DownloadJobStatus,
   DownloadJobTipo,
 } from './entities/download-job.entity';
-import { Laudo } from '../laudos/entities/laudo.entity';
 import { ImagemLaudo } from '../uploads/entities/imagem-laudo.entity';
-import { UserRole } from '../users/enums/user-role.enum';
 import { RabbitMQService } from '../queue/rabbitmq.service';
 import { UploadsService } from '../uploads/uploads.service';
 
@@ -41,8 +38,6 @@ export class DownloadService {
   constructor(
     @InjectRepository(DownloadJob)
     private readonly downloadJobRepository: Repository<DownloadJob>,
-    @InjectRepository(Laudo)
-    private readonly laudoRepository: Repository<Laudo>,
     @InjectRepository(ImagemLaudo)
     private readonly imagemLaudoRepository: Repository<ImagemLaudo>,
     private readonly rabbitMQService: RabbitMQService,
@@ -51,59 +46,70 @@ export class DownloadService {
 
   /**
    * Enfileira a geração do ZIP de um ambiente do laudo.
+   *
+   * Liberalizado pela change `enable-download-in-visualization`:
+   * aceita `currentUser?` opcional. Anônimo OU logado não-dono não-admin
+   * podem enfileirar — a checagem de ownership foi removida (defesa
+   * em profundidade é feita via rate limit + audit log + worker
+   * gerando job com `usuarioId` nulo quando anônimo).
    */
   async requestAmbienteZip(
-    userId: string,
     laudoId: string,
     ambiente: string,
-    userRole: UserRole,
+    currentUser?: { id: string; role?: string },
   ): Promise<DownloadJobResponse> {
-    await this.assertPermissao(laudoId, userId, userRole);
-
     const total = await this.imagemLaudoRepository.count({ where: { laudoId, ambiente } });
     if (total === 0) {
       throw new BadRequestException('Este ambiente não possui fotos para baixar.');
     }
 
-    return this.criarOuReaproveitarJob(userId, laudoId, DownloadJobTipo.AMBIENTE, ambiente);
+    return this.criarOuReaproveitarJob(
+      currentUser?.id ?? null,
+      laudoId,
+      DownloadJobTipo.AMBIENTE,
+      ambiente,
+    );
   }
 
   /**
    * Enfileira a geração do ZIP do laudo inteiro (organizado por ambiente).
+   *
+   * Liberalizado pela change `enable-download-in-visualization`:
+   * ver `requestAmbienteZip` acima.
    */
   async requestLaudoZip(
-    userId: string,
     laudoId: string,
-    userRole: UserRole,
+    currentUser?: { id: string; role?: string },
   ): Promise<DownloadJobResponse> {
-    await this.assertPermissao(laudoId, userId, userRole);
-
     const total = await this.imagemLaudoRepository.count({ where: { laudoId } });
     if (total === 0) {
       throw new BadRequestException('Este laudo não possui fotos para baixar.');
     }
 
-    return this.criarOuReaproveitarJob(userId, laudoId, DownloadJobTipo.LAUDO, null);
+    return this.criarOuReaproveitarJob(
+      currentUser?.id ?? null,
+      laudoId,
+      DownloadJobTipo.LAUDO,
+      null,
+    );
   }
 
   /**
    * Retorna o status de um job de download. Inclui a URL de download
    * (presigned) quando o job está pronto.
+   *
+   * Liberalizado pela change `enable-download-in-visualization`:
+   * a checagem `job.usuarioId === currentUser.id` foi removida. A
+   * capacidade de acessar o status é simplesmente "conhecer o
+   * `jobId`" (UUID v4, não iterável).
    */
   async getJobStatus(
-    userId: string,
     jobId: string,
-    userRole: UserRole,
+    _currentUser?: { id: string; role?: string },
   ): Promise<DownloadJobResponse> {
     const job = await this.downloadJobRepository.findOne({ where: { id: jobId } });
     if (!job) {
       throw new NotFoundException('Job de download não encontrado');
-    }
-
-    const isOwner = job.usuarioId === userId;
-    const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
-    if (!isOwner && !isAdminOrDev) {
-      throw new ForbiddenException('Você não tem permissão para acessar este download');
     }
 
     return this.toResponse(job);
@@ -112,9 +118,12 @@ export class DownloadService {
   /**
    * Cria um job e o publica na fila, ou reaproveita um job recente
    * equivalente (mesmo laudo/tipo/ambiente) que ainda esteja válido.
+   *
+   * `usuarioId` pode ser `null` quando enfileirado por anônimo
+   * (liberalização via change `enable-download-in-visualization`).
    */
   private async criarOuReaproveitarJob(
-    userId: string,
+    usuarioId: string | null,
     laudoId: string,
     tipo: DownloadJobTipo,
     ambiente: string | null,
@@ -138,7 +147,7 @@ export class DownloadService {
     const job = await this.downloadJobRepository.save(
       this.downloadJobRepository.create({
         laudoId,
-        usuarioId: userId,
+        usuarioId,
         tipo,
         ambiente,
         status: DownloadJobStatus.QUEUED,
@@ -149,7 +158,7 @@ export class DownloadService {
     const enfileirado = await this.rabbitMQService.addToDownloadQueue({
       jobId: job.id,
       laudoId,
-      usuarioId: userId,
+      usuarioId: usuarioId ?? undefined,
       tipo,
       ambiente: ambiente ?? undefined,
     });
@@ -207,27 +216,11 @@ export class DownloadService {
   }
 
   /**
-   * Valida que o laudo existe e que o usuário (dono ou admin/dev) pode
-   * baixar suas fotos.
+   * Removido na change `enable-download-in-visualization`:
+   * a checagem `assertPermissao` (dono/admin) foi substituída por
+   * `OptionalJwtAuthGuard` no controller + rate limit + audit log.
+   * Mantida apenas a validação "laudo tem fotos" via `count(...)`.
    */
-  private async assertPermissao(
-    laudoId: string,
-    userId: string,
-    userRole: UserRole,
-  ): Promise<Laudo> {
-    const laudo = await this.laudoRepository.findOne({ where: { id: laudoId } });
-    if (!laudo) {
-      throw new NotFoundException('Laudo não encontrado');
-    }
-
-    const isOwner = laudo.usuarioId === userId;
-    const isAdminOrDev = [UserRole.DEV, UserRole.ADMIN].includes(userRole);
-    if (!isOwner && !isAdminOrDev) {
-      throw new ForbiddenException('Você não tem permissão para baixar as fotos deste laudo');
-    }
-
-    return laudo;
-  }
 
   private async toResponse(job: DownloadJob): Promise<DownloadJobResponse> {
     const base: DownloadJobResponse = {
