@@ -330,7 +330,7 @@ export class PdfService {
   private async processImagesForPdf(imagens: ImagemLaudo[], laudoId: string): Promise<any[]> {
     const total = imagens.length;
     const processed = [];
-    const BATCH_SIZE = 5;
+    const BATCH_SIZE = 2;
 
     // 1. Obter URLs assinadas
     for (let i = 0; i < total; i += BATCH_SIZE) {
@@ -338,7 +338,7 @@ export class PdfService {
       const results = await Promise.all(
         batch.map(async (img) => {
           try {
-            const url = await this.uploadsService.getSignedUrlForAi(img.s3Key);
+            const url = await this.uploadsService.getPdfOptimizedImageUrl(img.s3Key);
             return { ...img, publicUrl: url };
           } catch (e) {
             this.logger.error(`Erro processando imagem ${img.id}`, e);
@@ -391,93 +391,97 @@ export class PdfService {
     const browser = await puppeteer.launch({
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-extensions',
+        '--disable-default-apps',
+        '--disable-background-networking',
+        '--disable-sync',
+        '--no-first-run',
+      ],
     });
-    const page = await browser.newPage();
-    // Aumentar timeout para 60s (imagens pesadas)
-    await page.setDefaultNavigationTimeout(60000);
 
-    await page.setContent(html, {
-      waitUntil: 'domcontentloaded',
-      timeout: 60000,
-    });
-    await page.waitForFunction(
-      () => Array.from(document.images).every((img) => img.complete),
-      { timeout: 60000 },
-    );
+    try {
+      const page = await browser.newPage();
+      // Aumentar timeout para 60s (imagens pesadas)
+      await page.setDefaultNavigationTimeout(60000);
 
-    await page.emulateMediaType('print');
-    await page.evaluate(() => document.fonts.ready);
-
-    // Ajusta posição dos markers de avaria com base nas dimensões
-    // naturais da imagem. As coordenadas são salvas normalizadas
-    // em relação à imagem ORIGINAL (`x`/`y` em 0..1 de
-    // naturalWidth/Height; `r` em 0..1 de min(naturalW, naturalH)).
-    // Como o `<img>` é renderizado com `object-fit: cover` dentro
-    // de containers com aspect ratio potencialmente diferente do
-    // da imagem, posicionar em % do container ignora o crop e
-    // deixa o círculo fora do lugar visível da foto. Esta correção
-    // em JS lê as dimensões naturais (já disponíveis após
-    // `waitForFunction`), calcula o crop de object-fit e aplica
-    // a posição em pixels do container — o mesmo cálculo que o
-    // frontend faz com `computeObjectCoverRegion`.
-    await page.evaluate(() => {
-      const markers = document.querySelectorAll<HTMLDivElement>(
-        '.damage-marker',
-      );
-      markers.forEach((marker) => {
-        const container = marker.parentElement;
-        if (!container) return;
-        const img = container.querySelector('img');
-        if (!img) return;
-        const naturalW = img.naturalWidth;
-        const naturalH = img.naturalHeight;
-        if (naturalW === 0 || naturalH === 0) return;
-        const containerRect = container.getBoundingClientRect();
-        if (containerRect.width <= 0 || containerRect.height <= 0) return;
-
-        // Mesma fórmula do frontend: scale = max do aspect ratio
-        // entre container e imagem, depois offX/offY do crop
-        // centralizado.
-        const scale = Math.max(
-          containerRect.width / naturalW,
-          containerRect.height / naturalH,
-        );
-        const displayW = naturalW * scale;
-        const displayH = naturalH * scale;
-        const offX = (displayW - containerRect.width) / 2;
-        const offY = (displayH - containerRect.height) / 2;
-
-        const mx = parseFloat(marker.dataset.mx ?? 'NaN');
-        const my = parseFloat(marker.dataset.my ?? 'NaN');
-        const mr = parseFloat(marker.dataset.mr ?? 'NaN');
-        if (
-          !Number.isFinite(mx) ||
-          !Number.isFinite(my) ||
-          !Number.isFinite(mr)
-        ) {
-          return;
-        }
-
-        const cx = mx * displayW - offX;
-        const cy = my * displayH - offY;
-        const rPx = mr * Math.min(displayW, displayH);
-
-        marker.style.left = `${cx - rPx}px`;
-        marker.style.top = `${cy - rPx}px`;
-        marker.style.width = `${rPx * 2}px`;
-        marker.style.height = `${rPx * 2}px`;
+      await page.setContent(html, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000,
       });
-    });
+      await page.waitForFunction(
+        () => Array.from(document.images).every((img) => img.complete),
+        { timeout: 60000 },
+      );
 
-    const pdf = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      margin: { top: '0px', bottom: '0px', left: '0px', right: '0px' },
-      timeout: 60000,
-    });
-    await browser.close();
-    return Buffer.from(pdf);
+      await page.emulateMediaType('print');
+      await page.evaluate(() => document.fonts.ready);
+
+      // Ajusta posição dos markers de avaria com base nas dimensões naturais
+      // da imagem depois que o object-fit já foi aplicado pelo Chromium.
+      await page.evaluate(() => {
+        const markers = document.querySelectorAll<HTMLDivElement>(
+          '.damage-marker',
+        );
+        markers.forEach((marker) => {
+          const container = marker.parentElement;
+          if (!container) return;
+          const img = container.querySelector('img');
+          if (!img) return;
+          const naturalW = img.naturalWidth;
+          const naturalH = img.naturalHeight;
+          if (naturalW === 0 || naturalH === 0) return;
+          const containerRect = container.getBoundingClientRect();
+          if (containerRect.width <= 0 || containerRect.height <= 0) return;
+
+          const scale = Math.max(
+            containerRect.width / naturalW,
+            containerRect.height / naturalH,
+          );
+          const displayW = naturalW * scale;
+          const displayH = naturalH * scale;
+          const offX = (displayW - containerRect.width) / 2;
+          const offY = (displayH - containerRect.height) / 2;
+
+          const mx = parseFloat(marker.dataset.mx ?? 'NaN');
+          const my = parseFloat(marker.dataset.my ?? 'NaN');
+          const mr = parseFloat(marker.dataset.mr ?? 'NaN');
+          if (
+            !Number.isFinite(mx) ||
+            !Number.isFinite(my) ||
+            !Number.isFinite(mr)
+          ) {
+            return;
+          }
+
+          const cx = mx * displayW - offX;
+          const cy = my * displayH - offY;
+          const rPx = mr * Math.min(displayW, displayH);
+
+          marker.style.left = `${cx - rPx}px`;
+          marker.style.top = `${cy - rPx}px`;
+          marker.style.width = `${rPx * 2}px`;
+          marker.style.height = `${rPx * 2}px`;
+        });
+      });
+
+      const pdf = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: { top: '0px', bottom: '0px', left: '0px', right: '0px' },
+        timeout: 60000,
+      });
+
+      return Buffer.from(pdf);
+    } finally {
+      await browser.close().catch((error) => {
+        this.logger.warn(`Falha ao fechar Chromium do PDF: ${error?.message}`);
+      });
+    }
   }
 
   // --- HTML BUILDERS ---

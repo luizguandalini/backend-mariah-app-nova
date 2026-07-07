@@ -13,7 +13,7 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
-  DeleteObjectCommand,
+  HeadObjectCommand,
   DeleteObjectsCommand,
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
@@ -56,9 +56,12 @@ export class UploadsService {
   // Prefixo dos derivados otimizados cacheados no S3 (reaproveitados em
   // downloads subsequentes). O original NUNCA é sobrescrito.
   private static readonly OPTIMIZED_PREFIX = 'derivados/optimized/';
+  private static readonly PDF_OPTIMIZED_PREFIX = 'derivados/pdf/';
   // Qualidade do JPEG recomprimido para download: leve, porém com
   // qualidade visual próxima do original.
   private static readonly OPTIMIZED_JPEG_QUALITY = 85;
+  private static readonly PDF_JPEG_QUALITY = 78;
+  private static readonly PDF_MAX_IMAGE_WIDTH = 1400;
   private readonly logger = new Logger(UploadsService.name);
   private s3Client: S3Client;
   private bucketName: string;
@@ -81,6 +84,11 @@ export class UploadsService {
     this.bucketName = this.configService.get<string>('S3_BUCKET_NAME', 'mariah-app-uploads-prod');
 
     this.s3Client = new S3Client(buildS3ClientConfig(this.configService));
+    sharp.concurrency(Number(process.env.SHARP_CONCURRENCY ?? 1));
+    sharp.cache({
+      files: 0,
+      memory: Number(process.env.SHARP_CACHE_MB ?? 64),
+    });
   }
 
   /**
@@ -829,16 +837,7 @@ export class UploadsService {
     });
 
     // 3. Deletar do S3 (fora da transação do banco)
-    try {
-      const command = new DeleteObjectCommand({
-        Bucket: this.bucketName,
-        Key: imagem.s3Key,
-      });
-      await this.s3Client.send(command);
-    } catch (error) {
-      console.error('Erro ao deletar imagem do S3:', error);
-      // Não lançar erro aqui para não falhar a request, já que o banco já foi atualizado
-    }
+    await this.deleteFile(imagem.s3Key);
 
     // 4. Recalcular contadores do Laudo (Fotos e Ambientes) para manter sincronizado com o App
     try {
@@ -915,14 +914,17 @@ export class UploadsService {
           .filter((key): key is string => Boolean(key)),
       ),
     );
+    const keysComDerivados = Array.from(
+      new Set(keysFiltradas.flatMap((key) => this.getObjectKeysWithDerivatives(key))),
+    );
 
-    if (keysFiltradas.length === 0) {
+    if (keysComDerivados.length === 0) {
       return;
     }
 
     const chunkSize = 1000;
-    for (let i = 0; i < keysFiltradas.length; i += chunkSize) {
-      const chunk = keysFiltradas.slice(i, i + chunkSize);
+    for (let i = 0; i < keysComDerivados.length; i += chunkSize) {
+      const chunk = keysComDerivados.slice(i, i + chunkSize);
 
       try {
         const command = new DeleteObjectsCommand({
@@ -1193,9 +1195,12 @@ ${itemsListString}`;
   async deleteFile(s3Key: string): Promise<void> {
     console.log(`[UploadsService] 🗑️ Iniciando deleção de arquivo: ${s3Key}`);
     try {
-      const command = new DeleteObjectCommand({
+      const command = new DeleteObjectsCommand({
         Bucket: this.bucketName,
-        Key: s3Key,
+        Delete: {
+          Objects: this.getObjectKeysWithDerivatives(s3Key).map((Key) => ({ Key })),
+          Quiet: true,
+        },
       });
       await this.s3Client.send(command);
       console.log(`[UploadsService] ✅ Arquivo deletado com sucesso: ${s3Key}`);
@@ -1203,6 +1208,26 @@ ${itemsListString}`;
       console.error(`[UploadsService] ❌ Erro ao deletar arquivo ${s3Key} do S3:`, error);
       // Não lançar erro para não interromper fluxos que dependem disso apenas para limpeza
     }
+  }
+
+  private getObjectKeysWithDerivatives(s3Key: string): string[] {
+    const key = s3Key?.trim();
+    if (!key) {
+      return [];
+    }
+
+    if (
+      key.startsWith(UploadsService.OPTIMIZED_PREFIX) ||
+      key.startsWith(UploadsService.PDF_OPTIMIZED_PREFIX)
+    ) {
+      return [key];
+    }
+
+    return [
+      key,
+      `${UploadsService.OPTIMIZED_PREFIX}${key}`,
+      `${UploadsService.PDF_OPTIMIZED_PREFIX}${key}`,
+    ];
   }
 
   // ===================== FOTO DE PERFIL / LOGO =====================
@@ -1545,6 +1570,21 @@ ${itemsListString}`;
     }
   }
 
+  private async objectExists(s3Key: string): Promise<boolean> {
+    try {
+      await this.s3Client.send(
+        new HeadObjectCommand({ Bucket: this.bucketName, Key: s3Key }),
+      );
+      return true;
+    } catch (error) {
+      const status = error?.$metadata?.httpStatusCode;
+      if (error?.name === 'NoSuchKey' || error?.name === 'NotFound' || status === 404) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
   /**
    * Retorna a versão OTIMIZADA (recomprimida) de uma imagem, em JPEG mais
    * leve preservando a qualidade visual. Usa cache no S3: se o derivado já
@@ -1595,6 +1635,58 @@ ${itemsListString}`;
     }
 
     return optimized;
+  }
+
+  /**
+   * Retorna uma URL pré-assinada para uma imagem otimizada para renderização
+   * de PDF. Diferente do download, aqui limitamos a largura para reduzir o
+   * pico de memória do Chromium em laudos com muitas fotos.
+   */
+  async getPdfOptimizedImageUrl(s3Key: string): Promise<string> {
+    const cacheKey = `${UploadsService.PDF_OPTIMIZED_PREFIX}${s3Key}`;
+
+    const cached = await this.objectExists(cacheKey);
+    if (!cached) {
+      const original = await this.tryGetObjectBuffer(s3Key);
+      if (!original) {
+        throw new NotFoundException(`Imagem não encontrada no S3: ${s3Key}`);
+      }
+
+      try {
+        const optimized = await sharp(original)
+          .rotate()
+          .resize({
+            width: UploadsService.PDF_MAX_IMAGE_WIDTH,
+            withoutEnlargement: true,
+          })
+          .jpeg({
+            quality: UploadsService.PDF_JPEG_QUALITY,
+            mozjpeg: true,
+          })
+          .toBuffer();
+
+        await this.s3Client.send(
+          new PutObjectCommand({
+            Bucket: this.bucketName,
+            Key: cacheKey,
+            Body: optimized,
+            ContentType: 'image/jpeg',
+          }),
+        );
+      } catch (error) {
+        this.logger.warn(
+          `[PDF] Falha ao otimizar ${s3Key} (${error?.message}). Usando original.`,
+        );
+        return this.getSignedUrlForAi(s3Key);
+      }
+    }
+
+    const command = new GetObjectCommand({
+      Bucket: this.bucketName,
+      Key: cacheKey,
+    });
+
+    return getSignedUrl(this.s3Client, command, { expiresIn: 3600 });
   }
 
   /**
