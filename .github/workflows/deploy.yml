@@ -1,220 +1,170 @@
-# Force Rebuild - Triggering Chromium Install
 name: Deploy to EC2
 
 on:
   push:
     branches: [main]
-  workflow_dispatch: # Permite trigger manual
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-ec2-main
+  cancel-in-progress: true
 
 env:
   NODE_VERSION: '20'
 
 jobs:
-  # ================================
-  # Job 1: Build e Verificação
-  # ================================
   build:
-    name: Build & Verify
+    name: Build & verify
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: 📥 Checkout código
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 📦 Setup Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
-      - name: 📦 Instalar dependências
-        run: npm install --legacy-peer-deps
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
 
-      - name: 🔨 Build
+      - name: Build application
         run: npm run build
 
-      - name: ✅ Build concluído
-        run: echo "Build concluído com sucesso!"
-
-  # ================================
-  # Job 2: Deploy para EC2
-  # ================================
   deploy:
     name: Deploy to EC2
     needs: build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
-    
+
     steps:
-      - name: 🚀 Deploy via SSH
+      - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
-        timeout-minutes: 20  # Aumentado para dar tempo ao build no EC2 Free Tier
+        timeout-minutes: 30
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          command_timeout: 15m  # Timeout do comando SSH (15 minutos)
+          command_timeout: 25m
           script: |
-            echo "📦 Iniciando deploy..."
-            
-            # Navega para o diretório do projeto
-            cd /home/ec2-user/backend-novamaria
-            
-            # ================================
-            # VERIFICAÇÃO INTELIGENTE DE ESPAÇO EM DISCO
-            # ================================
-            echo "💾 Verificando espaço em disco..."
-            DISK_REQUIRED=5  # Mínimo de 5GB necessários
-            
-            # Função para verificar espaço disponível
-            check_disk_space() {
-              df -BG / | awk 'NR==2 {print $4}' | sed 's/G//'
-            }
-            
-            # Verificação inicial
-            DISK_AVAILABLE=$(check_disk_space)
-            echo "📊 Espaço disponível: ${DISK_AVAILABLE}GB"
-            echo "📊 Espaço necessário: ${DISK_REQUIRED}GB"
-            
-            # Se não houver espaço suficiente, tenta limpeza automática
-            if [ "$DISK_AVAILABLE" -lt "$DISK_REQUIRED" ]; then
-              echo "⚠️ Espaço insuficiente detectado. Iniciando limpeza automática..."
-              
-              # ===== TENTATIVA 1: Limpeza Docker Básica =====
-              echo "🧹 [Tentativa 1/3] Limpeza Docker básica..."
-              docker container prune -f
-              docker image prune -f
-              docker volume prune -f
-              
-              DISK_AVAILABLE=$(check_disk_space)
-              echo "📊 Espaço após limpeza básica: ${DISK_AVAILABLE}GB"
-              
-              if [ "$DISK_AVAILABLE" -ge "$DISK_REQUIRED" ]; then
-                echo "✅ Espaço liberado com sucesso! Continuando deploy..."
-              else
-                # ===== TENTATIVA 2: Limpeza Docker Agressiva =====
-                echo "🧹 [Tentativa 2/3] Limpeza Docker agressiva (removendo imagens não utilizadas)..."
-                docker system prune -a -f
-                
-                DISK_AVAILABLE=$(check_disk_space)
-                echo "📊 Espaço após limpeza agressiva: ${DISK_AVAILABLE}GB"
-                
-                if [ "$DISK_AVAILABLE" -ge "$DISK_REQUIRED" ]; then
-                  echo "✅ Espaço liberado com sucesso! Continuando deploy..."
-                else
-                  # ===== TENTATIVA 3: Limpeza de Logs e Cache do Sistema =====
-                  echo "🧹 [Tentativa 3/3] Limpeza de logs e cache do sistema..."
-                  
-                  # Limpa logs antigos do Docker
-                  echo "Limpando logs do Docker..."
-                  sudo find /var/lib/docker/containers/ -type f -name "*.log" -delete 2>/dev/null || true
-                  
-                  # Limpa logs do sistema (mantém últimos 7 dias)
-                  echo "Limpando logs do sistema..."
-                  sudo journalctl --vacuum-time=7d 2>/dev/null || true
-                  
-                  # Limpa cache do npm (se existir)
-                  echo "Limpando cache do npm..."
-                  npm cache clean --force 2>/dev/null || true
-                  
-                  # Limpa arquivos temporários
-                  echo "Limpando arquivos temporários..."
-                  sudo rm -rf /tmp/* 2>/dev/null || true
-                  
-                  DISK_AVAILABLE=$(check_disk_space)
-                  echo "📊 Espaço após limpeza completa: ${DISK_AVAILABLE}GB"
-                  
-                  if [ "$DISK_AVAILABLE" -ge "$DISK_REQUIRED" ]; then
-                    echo "✅ Espaço liberado com sucesso! Continuando deploy..."
-                  else
-                    # ===== FALHA: Não foi possível liberar espaço suficiente =====
-                    echo "❌ ERRO: Não foi possível liberar espaço suficiente!"
-                    echo "❌ Disponível após todas as tentativas: ${DISK_AVAILABLE}GB"
-                    echo "❌ Necessário: ${DISK_REQUIRED}GB"
-                    echo "❌ Deploy abortado para manter versão atual rodando."
-                    echo ""
-                    echo "📋 Ações recomendadas:"
-                    echo "  1. Conecte-se ao servidor via SSH"
-                    echo "  2. Execute: df -h (para ver uso de disco)"
-                    echo "  3. Execute: du -sh /var/lib/docker (para ver uso do Docker)"
-                    echo "  4. Considere aumentar o tamanho do disco da instância EC2"
-                    exit 1
-                  fi
-                fi
-              fi
-            else
-              echo "✅ Espaço em disco suficiente. Continuando deploy..."
-            fi
-            
-            # Pull das últimas alterações
-            echo "⬇️ Baixando alterações..."
-            git pull origin main
+            set -Eeuo pipefail
 
-            # ================================
-            # MIGRAÇÕES: garante flags de ambiente no .env.prod
-            # (o schema é controlado por migrações, não mais por synchronize)
-            # ================================
-            echo "🔧 Garantindo flags de migração no .env.prod..."
+            PROJECT_DIR="/home/ec2-user/backend-novamaria"
+            COMPOSE_FILE="docker-compose.prod.yml"
+            MIN_FREE_GB=1
+
+            section() {
+              echo "::group::$1"
+            }
+
+            endsection() {
+              echo "::endgroup::"
+            }
+
+            show_resources() {
+              echo "--- memory ---"
+              free -h || true
+              echo "--- disk ---"
+              df -h / || true
+              echo "--- docker usage ---"
+              docker system df || true
+              echo "--- containers ---"
+              docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Size}}' || true
+            }
+
+            ensure_swap() {
+              if swapon --show | grep -q '/swapfile'; then
+                echo "Swap already enabled."
+                swapon --show
+                return
+              fi
+
+              echo "Creating 2G swapfile to protect small EC2 builds from OOM."
+              if [ ! -f /swapfile ]; then
+                sudo fallocate -l 2G /swapfile 2>/dev/null || sudo dd if=/dev/zero of=/swapfile bs=128M count=16
+                sudo chmod 600 /swapfile
+                sudo mkswap /swapfile
+              fi
+              sudo swapon /swapfile || true
+              grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+              swapon --show || true
+            }
+
+            free_gb() {
+              df -BG / | awk 'NR==2 {gsub("G","",$4); print $4}'
+            }
+
+            safe_cleanup() {
+              echo "Cleaning safe, rebuildable system data only."
+              docker builder prune -af || true
+              docker container prune -f || true
+              docker image prune -af || true
+              docker network prune -f || true
+              sudo find /var/lib/docker/containers -type f -name '*-json.log' -exec truncate -s 0 {} \; 2>/dev/null || true
+              sudo journalctl --vacuum-time=2d 2>/dev/null || true
+              find /tmp -mindepth 1 -mtime +1 -exec rm -rf {} + 2>/dev/null || true
+              npm cache clean --force 2>/dev/null || true
+            }
+
+            section "1. Preflight"
+            cd "$PROJECT_DIR"
+            show_resources
+            ensure_swap
+            endsection
+
+            section "2. Update source"
+            git fetch origin main
+            git reset --hard origin/main
             touch .env.prod
             grep -q '^PROD_DB_MIGRATIONS_RUN=' .env.prod || echo 'PROD_DB_MIGRATIONS_RUN=true' >> .env.prod
             grep -q '^PROD_DB_SYNCHRONIZE=' .env.prod || echo 'PROD_DB_SYNCHRONIZE=false' >> .env.prod
+            git log --oneline -1
+            endsection
 
-            # Guarda a imagem atual como backup
-            echo "💾 Criando backup da imagem atual..."
-            docker tag mariah-backend:latest mariah-backend:backup 2>/dev/null || true
-            
-            # Rebuild e restart dos containers
-            echo "🔨 Reconstruindo containers..."
-            docker-compose -f docker-compose.prod.yml build --no-cache
-
-            # ================================
-            # MIGRAÇÕES: baseline da transição (auto-protegido / idempotente)
-            # - 1ª vez num banco legado (synchronize): marca as migrações
-            #   existentes como aplicadas SEM rodar o SQL.
-            # - Depois disso: não faz nada (a tabela "migrations" já existe) e
-            #   as migrações NOVAS rodam no boot do app via migrationsRun.
-            # Roda num container one-off (sem subir rabbitmq) ANTES do down: se
-            # falhar, aborta o deploy com a versão antiga ainda no ar.
-            # ================================
-            echo "🗃️ Baseline/checagem de migrações..."
-            docker-compose -f docker-compose.prod.yml run --rm --no-deps backend node dist/database/baseline-migrations.js
-
-            # Para containers antigos
-            echo "⏹️ Parando containers antigos..."
-            docker-compose -f docker-compose.prod.yml down
-
-            # Sobe novos containers
-            echo "▶️ Iniciando novos containers..."
-            docker-compose -f docker-compose.prod.yml up -d
-            
-            # Aguarda e verifica health
-            echo "⏳ Aguardando inicialização (30s)..."
-            sleep 30
-            
-            # Testa health check
-            echo "🏥 Verificando health check..."
-            if curl -f http://localhost:80/health; then
-              echo ""
-              echo "✅ Deploy concluído com sucesso!"
+            section "3. Disk cleanup if needed"
+            DISK_AVAILABLE="$(free_gb)"
+            echo "Available disk: ${DISK_AVAILABLE}GB; required before build: ${MIN_FREE_GB}GB"
+            if [ "$DISK_AVAILABLE" -lt "$MIN_FREE_GB" ]; then
+              safe_cleanup
             else
-              echo "❌ Health check falhou! Restaurando backup..."
-              docker-compose -f docker-compose.prod.yml down
+              echo "Disk is sufficient; pruning old build cache anyway to keep the 8GB volume stable."
+              docker builder prune -af || true
+            fi
+            show_resources
+            endsection
+
+            section "4. Build backend image"
+            docker tag mariah-backend:latest mariah-backend:backup 2>/dev/null || true
+            docker-compose -f "$COMPOSE_FILE" build backend
+            endsection
+
+            section "5. Migration baseline"
+            docker-compose -f "$COMPOSE_FILE" run --rm --no-deps backend node dist/database/baseline-migrations.js
+            endsection
+
+            section "6. Restart services"
+            docker-compose -f "$COMPOSE_FILE" down
+            docker-compose -f "$COMPOSE_FILE" up -d
+            docker ps --format 'table {{.Names}}\t{{.Status}}'
+            endsection
+
+            section "7. Health check"
+            sleep 30
+            if curl -f http://localhost:80/health; then
+              echo "Deploy completed successfully."
+            else
+              echo "Health check failed. Restoring previous image."
+              docker-compose -f "$COMPOSE_FILE" down
               docker tag mariah-backend:backup mariah-backend:latest
-              docker-compose -f docker-compose.prod.yml up -d
-              echo "🔄 Versão anterior restaurada."
+              docker-compose -f "$COMPOSE_FILE" up -d
               exit 1
             fi
-            
-            # Limpeza de imagens antigas
-            echo "🧹 Limpando imagens não utilizadas..."
-            docker image prune -f
-            
-            echo "🎉 Deploy finalizado!"
+            endsection
 
-      - name: 📊 Status do Deploy
-        if: always()
-        run: |
-          if [ "${{ job.status }}" == "success" ]; then
-            echo "✅ Deploy realizado com sucesso!"
-          else
-            echo "❌ Deploy falhou. Verifique os logs acima."
-          fi
+            section "8. Final cleanup and status"
+            docker builder prune -af || true
+            docker image prune -f || true
+            show_resources
+            endsection
