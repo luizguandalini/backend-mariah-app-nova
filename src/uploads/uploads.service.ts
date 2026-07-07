@@ -56,12 +56,13 @@ export class UploadsService {
   // Prefixo dos derivados otimizados cacheados no S3 (reaproveitados em
   // downloads subsequentes). O original NUNCA é sobrescrito.
   private static readonly OPTIMIZED_PREFIX = 'derivados/optimized/';
-  private static readonly PDF_OPTIMIZED_PREFIX = 'derivados/pdf/';
+  private static readonly PDF_OPTIMIZED_PREFIX = 'derivados/pdf-v2/';
+  private static readonly LEGACY_PDF_OPTIMIZED_PREFIXES = ['derivados/pdf/'];
   // Qualidade do JPEG recomprimido para download: leve, porém com
   // qualidade visual próxima do original.
   private static readonly OPTIMIZED_JPEG_QUALITY = 85;
-  private static readonly PDF_JPEG_QUALITY = 78;
-  private static readonly PDF_MAX_IMAGE_WIDTH = 1400;
+  private static readonly PDF_JPEG_QUALITY = 72;
+  private static readonly PDF_MAX_IMAGE_WIDTH = 1100;
   private readonly logger = new Logger(UploadsService.name);
   private s3Client: S3Client;
   private bucketName: string;
@@ -1218,7 +1219,10 @@ ${itemsListString}`;
 
     if (
       key.startsWith(UploadsService.OPTIMIZED_PREFIX) ||
-      key.startsWith(UploadsService.PDF_OPTIMIZED_PREFIX)
+      key.startsWith(UploadsService.PDF_OPTIMIZED_PREFIX) ||
+      UploadsService.LEGACY_PDF_OPTIMIZED_PREFIXES.some((prefix) =>
+        key.startsWith(prefix),
+      )
     ) {
       return [key];
     }
@@ -1227,6 +1231,7 @@ ${itemsListString}`;
       key,
       `${UploadsService.OPTIMIZED_PREFIX}${key}`,
       `${UploadsService.PDF_OPTIMIZED_PREFIX}${key}`,
+      ...UploadsService.LEGACY_PDF_OPTIMIZED_PREFIXES.map((prefix) => `${prefix}${key}`),
     ];
   }
 

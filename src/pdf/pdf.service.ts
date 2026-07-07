@@ -64,6 +64,8 @@ const LOGO_CAPA_DEFAULT = {
   y: 8,
 };
 
+const PDF_RENDER_TIMEOUT_MS = Number(process.env.PDF_RENDER_TIMEOUT_MS ?? 240000);
+
 type PdfConfig = {
   margemPagina: number;
   espacamentoHorizontal: number;
@@ -120,7 +122,7 @@ export class PdfService {
       espacamentoVertical?: number;
     },
   ): Promise<string> {
-    this.updateStatus(laudoId, 'PROCESSING', 0);
+    this.updateStatus(laudoId, 'PROCESSING', 0, 'Entrando na fila de geração do PDF...');
 
     try {
       this.logger.log(`🚀 Iniciando geração de PDF para laudo ${laudoId}`);
@@ -207,11 +209,11 @@ export class PdfService {
       // --- Processamento ---
 
       // Progresso 10% -> Processar Imagens
-      this.updateStatus(laudoId, 'PROCESSING', 10);
+      this.updateStatus(laudoId, 'PROCESSING', 10, 'Otimizando imagens para o PDF...');
       const imagensProcessadas = await this.processImagesForPdf(imagens, laudoId);
 
       // Progresso 60% -> Renderizar HTML
-      this.updateStatus(laudoId, 'PROCESSING', 60);
+      this.updateStatus(laudoId, 'PROCESSING', 60, 'Montando as páginas do laudo...');
 
       // URL assinada da foto de perfil/logo do dono do laudo (para a capa)
       let logoUrl: string | null = null;
@@ -235,11 +237,13 @@ export class PdfService {
       );
 
       // Progresso 80% -> Gerar PDF
-      this.updateStatus(laudoId, 'PROCESSING', 80);
-      const pdfBuffer = await this.renderPdf(htmlContent);
+      this.updateStatus(laudoId, 'PROCESSING', 80, 'Abrindo renderizador do PDF...');
+      const pdfBuffer = await this.renderPdf(htmlContent, (progress, message) =>
+        this.updateStatus(laudoId, 'PROCESSING', progress, message),
+      );
 
       // Progresso 95% -> Upload
-      this.updateStatus(laudoId, 'PROCESSING', 95);
+      this.updateStatus(laudoId, 'PROCESSING', 95, 'Enviando o PDF finalizado...');
       const s3Key = `laudos/pdf/${laudoId}_${Date.now()}.pdf`;
       const publicUrl = await this.uploadsService.uploadPdfBuffer(pdfBuffer, s3Key);
 
@@ -288,6 +292,7 @@ export class PdfService {
         laudoId,
         status: 'COMPLETED',
         progress: 100,
+        message: 'PDF pronto para download.',
         url: publicUrl,
         modoPreviewPdf: modoPdf,
       });
@@ -312,7 +317,7 @@ export class PdfService {
     }
   }
 
-  private updateStatus(laudoId: string, status: string, progress: number) {
+  private updateStatus(laudoId: string, status: string, progress: number, message?: string) {
     this.laudoRepository
       .update(laudoId, {
         pdfStatus: status,
@@ -324,6 +329,7 @@ export class PdfService {
       laudoId,
       status,
       progress,
+      message,
     });
   }
 
@@ -348,9 +354,15 @@ export class PdfService {
       );
       processed.push(...results.filter((r) => r !== null));
 
-      const loopPercent = (i + batch.length) / total;
+      const processedCount = Math.min(i + batch.length, total);
+      const loopPercent = processedCount / total;
       const totalProgress = 10 + Math.round(loopPercent * 50);
-      this.updateStatus(laudoId, 'PROCESSING', totalProgress);
+      this.updateStatus(
+        laudoId,
+        'PROCESSING',
+        totalProgress,
+        `Otimizando imagens (${processedCount}/${total})...`,
+      );
     }
 
     // 2. Calcular números (numeroAmbiente e numeroImagemNoAmbiente)
@@ -387,7 +399,11 @@ export class PdfService {
     return finalImages;
   }
 
-  private async renderPdf(html: string): Promise<Buffer> {
+  private async renderPdf(
+    html: string,
+    onProgress?: (progress: number, message: string) => void,
+  ): Promise<Buffer> {
+    onProgress?.(82, 'Inicializando o navegador de impressão...');
     const browser = await puppeteer.launch({
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
       headless: true,
@@ -406,23 +422,28 @@ export class PdfService {
 
     try {
       const page = await browser.newPage();
-      // Aumentar timeout para 60s (imagens pesadas)
-      await page.setDefaultNavigationTimeout(60000);
+      await page.setDefaultNavigationTimeout(PDF_RENDER_TIMEOUT_MS);
+      await page.setDefaultTimeout(PDF_RENDER_TIMEOUT_MS);
 
+      onProgress?.(84, 'Carregando o conteúdo do laudo...');
       await page.setContent(html, {
         waitUntil: 'domcontentloaded',
-        timeout: 60000,
+        timeout: PDF_RENDER_TIMEOUT_MS,
       });
+
+      onProgress?.(87, 'Conferindo o carregamento das fotos...');
       await page.waitForFunction(
         () => Array.from(document.images).every((img) => img.complete),
-        { timeout: 60000 },
+        { timeout: PDF_RENDER_TIMEOUT_MS },
       );
 
+      onProgress?.(90, 'Preparando o layout de impressão...');
       await page.emulateMediaType('print');
       await page.evaluate(() => document.fonts.ready);
 
       // Ajusta posição dos markers de avaria com base nas dimensões naturais
       // da imagem depois que o object-fit já foi aplicado pelo Chromium.
+      onProgress?.(92, 'Ajustando marcações e apontamentos...');
       await page.evaluate(() => {
         const markers = document.querySelectorAll<HTMLDivElement>(
           '.damage-marker',
@@ -469,11 +490,12 @@ export class PdfService {
         });
       });
 
+      onProgress?.(94, 'Compondo o arquivo PDF. Em laudos grandes isso pode levar alguns minutos...');
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
         margin: { top: '0px', bottom: '0px', left: '0px', right: '0px' },
-        timeout: 60000,
+        timeout: PDF_RENDER_TIMEOUT_MS,
       });
 
       return Buffer.from(pdf);
