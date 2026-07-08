@@ -14,6 +14,11 @@ import { LaudoOption } from '../laudo-details/entities/laudo-option.entity';
 import { UsersService } from '../users/users.service';
 import { ContestacaoService } from '../contestacao/contestacao.service';
 import * as QRCode from 'qrcode';
+import {
+  listarAmbientesPdf,
+  numerarImagensPorAmbiente,
+  ordenarImagensPorGaleria,
+} from '../laudos/utils/pdf-image-ordering.util';
 
 const METODOLOGIA_TEXTS = [
   'Este documento tem como objetivo garantir às partes da locação o registro do estado de entrega do imóvel, integrando-se como anexo ao contrato formado. Ele concilia as obrigações contratuais e serve como referência para a aferição de eventuais alterações no imóvel ao longo do período de uso.',
@@ -142,24 +147,21 @@ export class PdfService {
         this.logger.log(`📋 URL do PDF antigo: ${oldPdfUrl.substring(0, 100)}...`);
       }
 
-      // 2. Buscar Imagens ordenadas
+      // 2. Buscar imagens e ordenar pela mesma fonte da galeria web.
       const imagens = await this.imagemRepository.find({
         where: { laudoId },
-        order: { ambiente: 'ASC', ordem: 'ASC' },
+        order: { createdAt: 'ASC' },
       });
+      const imagensOrdenadas = ordenarImagensPorGaleria(
+        imagens,
+        laudo.ambientesWeb || [],
+      );
 
-      // 3. Derivar Ambientes das Imagens
-      const ambientesSet = new Set<string>();
-      // Manter a ordem de aparecimento ou alfabética?
-      // O front parece usar ordem de inserção/retorno da API.
-      // Vamos usar ordem de aparecimento nas fotos (que estão por ordem).
-      imagens.forEach((img) => {
-        if (img.ambiente) ambientesSet.add(img.ambiente);
-      });
-      const ambientes = Array.from(ambientesSet).map((nome, index) => ({
-        nome,
-        originalIndex: index + 1,
-      }));
+      // 3. Ambientes da página de informações seguem a ordem da galeria.
+      const ambientes = listarAmbientesPdf(
+        laudo.ambientesWeb || [],
+        imagensOrdenadas,
+      );
 
       // 4. Buscar Seções para o Relatório
       const sections = await this.sectionRepository.find({
@@ -210,7 +212,10 @@ export class PdfService {
 
       // Progresso 10% -> Processar Imagens
       this.updateStatus(laudoId, 'PROCESSING', 10, 'Otimizando imagens para o PDF...');
-      const imagensProcessadas = await this.processImagesForPdf(imagens, laudoId);
+      const imagensProcessadas = await this.processImagesForPdf(
+        imagensOrdenadas,
+        laudoId,
+      );
 
       // Progresso 60% -> Renderizar HTML
       this.updateStatus(laudoId, 'PROCESSING', 60, 'Montando as páginas do laudo...');
@@ -365,38 +370,9 @@ export class PdfService {
       );
     }
 
-    // 2. Calcular números (numeroAmbiente e numeroImagemNoAmbiente)
-    // Agrupar por ambiente para saber a ordem
-    const ambientesMap = new Map<string, any[]>();
-    processed.forEach((img) => {
-      const amb = img.ambiente || 'AMBIENTE';
-      if (!ambientesMap.has(amb)) {
-        ambientesMap.set(amb, []);
-      }
-      ambientesMap.get(amb).push(img);
-    });
-
-    // Atribuir números
-    let ambienteIndex = 1;
-    const finalImages = [];
-
-    // Iterar na ordem que aparecem (preservando ordem original do array processed)
-    // Para garantir ordem de ambientes, percorremos o map na ordem de inserção
-    for (const [nomeAmbiente, imgsDoAmbiente] of ambientesMap.entries()) {
-      imgsDoAmbiente.forEach((img, index) => {
-        img.numeroAmbiente = ambienteIndex;
-        img.numeroImagemNoAmbiente = index + 1;
-        finalImages.push(img);
-      });
-      ambienteIndex++;
-    }
-
-    // Reordenar finalImages para garantir que a ordem original do array seja respeitada se necessário,
-    // mas geralmente agrupado por ambiente é o desejado.
-    // Se a ordem original for misturada (ambientes intercalados), essa logica agrupa.
-    // O front parece agrupar. Vamos devolver agrupado.
-
-    return finalImages;
+    // 2. Numerar em cima da ordem já definida pela galeria. Isso mantém
+    // preview e PDF backend com a mesma sequência de ambientes e fotos.
+    return numerarImagensPorAmbiente(processed);
   }
 
   private async renderPdf(

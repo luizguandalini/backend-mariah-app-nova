@@ -32,6 +32,7 @@ import { buildDriveViewer, DriveViewerSubject } from '../common/viewer/build-dri
 import { UploadsService } from '../uploads/uploads.service';
 import { RabbitMQService } from '../queue/rabbitmq.service';
 import { ContestacaoService } from '../contestacao/contestacao.service';
+import { prepararImagensPdf } from './utils/pdf-image-ordering.util';
 
 export interface PaginatedLaudosResult {
   data: LaudoListItem[];
@@ -1423,8 +1424,6 @@ export class LaudosService {
       throw new ForbiddenException('Você não tem permissão para visualizar as imagens deste laudo');
     }
 
-    const ambientesNomesValidos = (laudo.ambientesWeb || []).map((a) => a.nomeAmbiente);
-
     // Paraleliza o lookup das imagens com a contagem da contestação.
     // Antes era sequencial: imagens (I/O) -> depois contestação (outro I/O).
     // Como não há dependência entre eles, podemos disparar juntos. O
@@ -1435,21 +1434,20 @@ export class LaudosService {
     const [todasImagens, contestacaoImagesCount] = await Promise.all([
       this.imagemRepository.find({
         where: { laudoId },
-        order: {
-          ambiente: 'ASC',
-          ordem: 'ASC',
-        },
+        order: { createdAt: 'ASC' },
       }),
       this.contestacaoService.countContestacaoImagens(laudoId),
     ]);
 
-    // mas apenas anexar as que constam ativamente no JSON de ambientes
-    const todasImagensFiltradas =
-      ambientesNomesValidos.length > 0
-        ? todasImagens.filter((img) => ambientesNomesValidos.includes(img.ambiente))
-        : todasImagens;
+    // Fonte única de ordenação para o preview do PDF: a ordem da galeria
+    // (`laudo.ambientesWeb`). Quando essa lista existe, imagens fora dela
+    // ficam de fora do preview, igual ao que o usuário vê na galeria.
+    const todasImagensOrdenadas = prepararImagensPdf(
+      todasImagens,
+      laudo.ambientesWeb || [],
+    );
 
-    if (todasImagensFiltradas.length === 0) {
+    if (todasImagensOrdenadas.length === 0) {
       return {
         data: [],
         meta: {
@@ -1471,63 +1469,18 @@ export class LaudosService {
       };
     }
 
-    // Criar mapa de numeração de ambientes
-    const ambientesMap = new Map<string, { numeroAmbiente: number; contador: number }>();
-    let numeroAmbienteAtual = 0;
-    let ambienteAnterior: string | null = null;
-
-    todasImagensFiltradas.forEach((img) => {
-      if (img.ambiente !== ambienteAnterior) {
-        numeroAmbienteAtual++;
-        ambientesMap.set(img.ambiente, {
-          numeroAmbiente: numeroAmbienteAtual,
-          contador: 0,
-        });
-        ambienteAnterior = img.ambiente;
-      }
-    });
-
     // Aplicar paginação
     const inicio = (page - 1) * limit;
-    const imagensPaginadas = todasImagensFiltradas.slice(inicio, inicio + limit);
-
-    // Resetar contadores para numeração correta
-    const contadoresPorAmbiente = new Map<string, number>();
-    ambientesMap.forEach((value, key) => {
-      contadoresPorAmbiente.set(key, 0);
-    });
-
-    // Processar todas as imagens até a página atual para contagem correta
-    for (let i = 0; i < inicio + imagensPaginadas.length && i < todasImagensFiltradas.length; i++) {
-      const img = todasImagensFiltradas[i];
-      const contadorAtual = contadoresPorAmbiente.get(img.ambiente) || 0;
-      contadoresPorAmbiente.set(img.ambiente, contadorAtual + 1);
-
-      // Só adicionar ao resultado se estiver na página atual
-      if (i >= inicio && i < inicio + limit) {
-        // Processado abaixo
-      }
-    }
+    const imagensPaginadas = todasImagensOrdenadas.slice(inicio, inicio + limit);
 
     // Mapear imagens com numeração
-    const imagensComNumeracao: ImagemPdfDto[] = imagensPaginadas.map((img, index) => {
-      const infoAmbiente = ambientesMap.get(img.ambiente);
-
-      // Recontar imagens deste ambiente até esta posição
-      const posDaImagemNoArray = inicio + index;
-      let contadorImagemNoAmbiente = 0;
-      for (let i = 0; i <= posDaImagemNoArray; i++) {
-        if (todasImagensFiltradas[i].ambiente === img.ambiente) {
-          contadorImagemNoAmbiente++;
-        }
-      }
-
+    const imagensComNumeracao: ImagemPdfDto[] = imagensPaginadas.map((img) => {
       return {
         id: img.id,
         s3Key: img.s3Key,
         ambiente: img.ambiente,
-        numeroAmbiente: infoAmbiente?.numeroAmbiente || 0,
-        numeroImagemNoAmbiente: contadorImagemNoAmbiente,
+        numeroAmbiente: img.numeroAmbiente,
+        numeroImagemNoAmbiente: img.numeroImagemNoAmbiente,
         legenda: img.legenda || 'sem legenda',
         ordem: img.ordem,
         categoria: img.categoria,
@@ -1548,15 +1501,15 @@ export class LaudosService {
       data: imagensComNumeracao,
       meta: {
         currentPage: page,
-        totalPages: Math.ceil(todasImagensFiltradas.length / limit),
-        totalImages: todasImagensFiltradas.length,
+        totalPages: Math.ceil(todasImagensOrdenadas.length / limit),
+        totalImages: todasImagensOrdenadas.length,
         imagesPerPage: limit,
         contestacaoImagesCount,
         contestacaoRealizada: !!laudo.contestacaoRealizada,
         // Filtra as imagens já carregadas por categoria === 'AVARIA'.
         // Mantém apenas as que também estão em `ambientesWeb` ativos (se
         // essa lista existir), consistente com o que vai para as fotos.
-        apontamentosImagesCount: todasImagensFiltradas.filter(
+        apontamentosImagesCount: todasImagensOrdenadas.filter(
           (img) => (img.categoria || '').trim().toUpperCase() === 'AVARIA',
         ).length,
       },
@@ -1632,56 +1585,27 @@ export class LaudosService {
       }
     }
 
-    const ambientesNomesValidos = (laudo.ambientesWeb || []).map(
-      (a) => a.nomeAmbiente,
-    );
-
     const todas = await this.imagemRepository.find({
       where: { laudoId },
-      order: { ambiente: 'ASC', ordem: 'ASC' },
+      order: { createdAt: 'ASC' },
     });
 
-    // Aplica o mesmo filtro de ambientes ativos usado em
-    // `getImagensPdfPaginadas`, e restringe a categoria AVARIA.
-    const avarias = todas.filter((img) => {
-      const isAvaria =
-        (img.categoria || '').trim().toUpperCase() === 'AVARIA';
-      if (!isAvaria) return false;
-      if (ambientesNomesValidos.length === 0) return true;
-      return ambientesNomesValidos.includes(img.ambiente);
-    });
+    // Usa a mesma ordenação/numeração da galeria principal antes de filtrar
+    // AVARIA; assim "Nº amb (Nº foto)" dos apontamentos continua batendo
+    // com a foto correspondente no bloco principal do PDF.
+    const avarias = prepararImagensPdf(todas, laudo.ambientesWeb || []).filter(
+      (img) => (img.categoria || '').trim().toUpperCase() === 'AVARIA',
+    );
 
     if (avarias.length === 0) {
       return { imagens: [] };
     }
 
-    // Calcula `numeroAmbiente` e `numeroImagemNoAmbiente` no mesmo
-    // esquema do `processImagesForPdf` do PdfService — assim o card
-    // mostra "Nº amb (Nº foto)" consistente com a galeria principal.
-    const contadores = new Map<string, number>();
-    let numeroAmbienteAtual = 0;
-    let ambienteAnterior: string | null = null;
-
-    const enriched = avarias.map((img) => {
-      if (img.ambiente !== ambienteAnterior) {
-        numeroAmbienteAtual++;
-        contadores.set(img.ambiente, 0);
-        ambienteAnterior = img.ambiente;
-      }
-      const novoContador = (contadores.get(img.ambiente) || 0) + 1;
-      contadores.set(img.ambiente, novoContador);
-      return {
-        ...img,
-        numeroAmbiente: numeroAmbienteAtual,
-        numeroImagemNoAmbiente: novoContador,
-      };
-    });
-
     // Gera URLs assinadas em paralelo (uma chamada por imagem, mesma
     // estratégia do `getContestacaoInterno`). Aceitável porque apontamentos
     // é, por definição, um subconjunto pequeno das fotos do laudo.
     const imagensComUrl = await Promise.all(
-      enriched.map(async (img) => ({
+      avarias.map(async (img) => ({
         id: img.id,
         s3Key: img.s3Key,
         url: await this.uploadsService.getSignedUrlForAi(img.s3Key),
